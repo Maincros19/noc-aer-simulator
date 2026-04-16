@@ -43,7 +43,7 @@ python3 fast_sim.py ../../traffic_generator/generic_trace.txt ../config/mesh_4x4
 - **Latencia Promedio:** Tiempo de tránsito de los spikes en ciclos de reloj.
 - **Jitter:** Variabilidad temporal de la latencia (crítico para SNN).
 - **Actividad de Nodos:** Identificación de hotspots y cuellos de botella.
-- **Energía Estimada:** Basada en saltos (hops) y eventos procesados.
+- **Energía Estimada:** Basada en saltos (hops) y eventos procesados. Consulta el [Modelo de Energía Detallado](python_simulator/docs/modelo_energia_detallado.md) para más información.
 
 ## Notas de Diseño
 El simulador utiliza un modelo de **latencia analítica con penalización por congestión**, lo que permite procesar millones de eventos en segundos, manteniendo la precisión necesaria para el análisis de rendimiento en hardware neuromórfico.
