@@ -22,7 +22,9 @@ class Router:
     __slots__ = ['node_id', 'input_buffers', 'next_input_to_serve']
     def __init__(self, node_id, buffer_size):
         self.node_id = node_id
+        # Buffers de entrada para cada puerto (FIFO)
         self.input_buffers = [collections.deque(maxlen=buffer_size) for _ in range(5)]
+        # Estado del árbitro para cada puerto de salida (Round Robin)
         self.next_input_to_serve = [0] * 5
 
 class HighFidelityCycleSimulator:
@@ -40,6 +42,9 @@ class HighFidelityCycleSimulator:
         self.link_activity = collections.defaultdict(lambda: collections.defaultdict(int))
         self.total_hops = 0
         self.injected_count = 0
+        
+        # Buffer de espera para inyección si el puerto LOCAL está lleno
+        self.injection_queues = [collections.deque() for _ in range(self.num_nodes)]
 
     def get_coordinates(self, node_id):
         return node_id % self.dim_x, node_id // self.dim_x
@@ -63,17 +68,20 @@ class HighFidelityCycleSimulator:
         return -1
 
     def step(self, new_events):
-        # 1. Inyectar nuevos eventos
+        # 1. Añadir nuevos eventos a la cola de inyección del nodo correspondiente
         for event in new_events:
-            flit = Flit(self.injected_count, event['source'], event['destination'], self.current_cycle)
-            router = self.routers[flit.source]
-            if len(router.input_buffers[LOCAL]) < self.buffer_size:
-                router.input_buffers[LOCAL].append(flit)
-                self.injected_count += 1
-            # Si el buffer está lleno, el evento se pierde o se retrasa. 
-            # Para N-MNIST (411k), la inyección masiva en un solo ciclo es común.
+            flit = Flit(self.injected_count, event['source'], event['destination'], event['timestamp'])
+            self.injection_queues[flit.source].append(flit)
+            self.injected_count += 1
 
-        # 2. Movimiento entre Routers
+        # 2. Intentar inyectar flits de la cola al puerto LOCAL del router (si hay espacio)
+        for i in range(self.num_nodes):
+            router = self.routers[i]
+            queue = self.injection_queues[i]
+            while queue and len(router.input_buffers[LOCAL]) < self.buffer_size:
+                router.input_buffers[LOCAL].append(queue.popleft())
+
+        # 3. Movimiento entre Routers (Switch Traversal & Link Traversal)
         transfers = [] # (dest_router_idx, dest_port, flit)
 
         for router_id in range(self.num_nodes):
@@ -87,6 +95,7 @@ class HighFidelityCycleSimulator:
                         flit = buffer[0]
                         if self.get_next_port(router_id, flit.destination) == out_port:
                             if out_port == LOCAL:
+                                # Entrega final
                                 buffer.popleft()
                                 lat = self.current_cycle + 1 - flit.timestamp_injection
                                 self.total_latency += lat
@@ -95,10 +104,12 @@ class HighFidelityCycleSimulator:
                                 router.next_input_to_serve[out_port] = (in_port + 1) % 5
                                 break
                             else:
+                                # Movimiento a vecino
                                 neighbor_id = self.get_neighbor_id(router_id, out_port)
                                 if neighbor_id != -1:
                                     neighbor = self.routers[neighbor_id]
-                                    in_port_neighbor = [SOUTH, WEST, NORTH, EAST][out_port] # Opuesto
+                                    # Puerto opuesto en el vecino
+                                    in_port_neighbor = [SOUTH, WEST, NORTH, EAST, -1][out_port]
                                     if len(neighbor.input_buffers[in_port_neighbor]) < self.buffer_size:
                                         buffer.popleft()
                                         flit.current_node = neighbor_id
@@ -109,6 +120,7 @@ class HighFidelityCycleSimulator:
                                         router.next_input_to_serve[out_port] = (in_port + 1) % 5
                                         break
 
+        # 4. Aplicar transferencias al final del ciclo
         for d_idx, d_port, flit in transfers:
             self.routers[d_idx].input_buffers[d_port].append(flit)
 
@@ -145,9 +157,17 @@ if __name__ == "__main__":
     sim = HighFidelityCycleSimulator(config)
     event_idx = 0
     
-    print(f"--- Iniciando Simulador de Ciclos de Alta Fidelidad (Optimizado) ---")
+    print(f"--- Iniciando Simulador de Ciclos de Alta Fidelidad (Integridad Total) ---")
+    print(f"Traza cargada: {len(trace)} eventos.")
     
-    while event_idx < len(trace) or any(any(b for b in r.input_buffers) for r in sim.routers):
+    # Simular mientras queden eventos en la traza, en las colas de inyección o en los buffers de los routers
+    def is_simulation_active(sim, trace_idx, trace_len):
+        if trace_idx < trace_len: return True
+        if any(q for q in sim.injection_queues): return True
+        if any(any(b for b in r.input_buffers) for r in sim.routers): return True
+        return False
+
+    while is_simulation_active(sim, event_idx, len(trace)):
         current_events = []
         while event_idx < len(trace) and trace[event_idx]['timestamp'] <= sim.current_cycle:
             current_events.append(trace[event_idx])
@@ -156,9 +176,11 @@ if __name__ == "__main__":
         sim.step(current_events)
         
         if sim.current_cycle % 10000 == 0 and sim.current_cycle > 0:
-            print(f"Ciclo {sim.current_cycle} | Entregados: {sim.completed_count} | En red: {sim.injected_count - sim.completed_count}")
+            print(f"Ciclo {sim.current_cycle} | Entregados: {sim.completed_count}/{len(trace)} | En red: {sim.injected_count - sim.completed_count}")
 
-        if sim.current_cycle > 5000000: break
+        if sim.current_cycle > 10000000: # Límite de seguridad extendido para alta congestión
+            print("AVISO: Límite de ciclos alcanzado.")
+            break
 
     print(f"\n--- Resultados de la Simulación (Alta Fidelidad) ---")
     print(f"Ciclos totales: {sim.current_cycle}")

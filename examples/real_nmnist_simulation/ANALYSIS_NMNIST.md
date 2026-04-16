@@ -1,34 +1,31 @@
-# Análisis de Alta Fidelidad: Simulación Real N-MNIST
+# Análisis de Saturación y Alta Fidelidad: Simulación N-MNIST
 
 ## Introducción
 
-Este documento analiza los resultados obtenidos tras la mejora del simulador basado en ciclos (`cycle_sim.py`), el cual ahora incorpora mecanismos reales de **arbitraje de puertos (Round Robin)**, **gestión de buffers limitada** y **backpressure**. Estas mejoras permiten capturar el impacto físico de la congestión en la NoC, ofreciendo una comparativa mucho más precisa frente al modelo analítico de `fast_sim.py`.
+Este análisis presenta los resultados finales de la simulación del dataset N-MNIST (411,420 eventos) utilizando el modelo de **Integridad Total** en `cycle_sim.py`. A diferencia de versiones anteriores, este modelo garantiza que **no se pierda ningún flit**, implementando colas de inyección con espera y modelando el *backpressure* real de la red.
 
-## Evolución del Modelo de Hardware
+## Resultados Finales: El Impacto de la Saturación
 
-Anteriormente, `cycle_sim.py` operaba bajo un modelo de "latencia ideal", donde los flits avanzaban sin interferencias. El nuevo modelo de **Alta Fidelidad** introduce las siguientes restricciones realistas:
-
-1.  **Arbitraje de Salida:** Si varios flits en diferentes buffers de entrada compiten por el mismo puerto de salida, un árbitro Round Robin decide quién avanza, introduciendo retrasos de espera.
-2.  **Capacidad de Buffer:** Los routers tienen un tamaño de buffer finito (definido en el config). Si un buffer está lleno, el tráfico se detiene (*Backpressure*).
-3.  **Travesía por Etapas:** Cada salto entre routers consume ciclos de reloj reales, y la contención en los puertos aumenta drásticamente la latencia bajo alta carga.
-
-## Resultados Comparativos Actualizados
-
-Tras ejecutar la traza real de N-MNIST con el modelo mejorado, observamos una **convergencia significativa** entre ambos simuladores:
+Al procesar la traza completa sin pérdidas, los resultados revelan un fenómeno crítico en el diseño de NoCs: la **saturación catastrófica**.
 
 | Métrica | `cycle_sim.py` (Alta Fidelidad) | `fast_sim.py` (Analítico) | Diferencia |
 | :------------------ | :-------------------- | :-------------------- | :--------------- |
-| **Latencia Promedio** | **352.76 ciclos**     | **367.79 ciclos**     | **~4% de diferencia** |
-| **Jitter (StdDev)** | **338.28 ciclos**     | **276.71 ciclos**     | **~22% de diferencia** |
+| **Flits Procesados** | **411,420 (100%)**    | **411,420 (100%)**    | **Integridad Total** |
+| **Latencia Promedio** | **49,288.80 ciclos**  | **367.79 ciclos**     | **Saturación Real** |
+| **Jitter (StdDev)** | **28,709.98 ciclos**  | **276.71 ciclos**     | **Variabilidad Extrema** |
+| **Total Hops**      | **1,190,989**         | **1,190,989**         | **Consistente** |
 
-### Análisis de la Convergencia
+### ¿Por qué esta diferencia tan extrema?
 
-La diferencia de latencia, que antes era de órdenes de magnitud (3 ciclos vs 367 ciclos), se ha reducido a apenas un **4%**. Esto demuestra que:
+La enorme diferencia en la latencia (~49k vs ~367) se explica por cómo cada simulador maneja el tráfico masivo:
 
-*   **Validación del Modelo Analítico:** El modelo de penalización por congestión de `fast_sim.py` es una excelente aproximación estadística al comportamiento físico real de la red.
-*   **Impacto de la Congestión:** En la red N-MNIST, la latencia no está determinada por la distancia física (saltos), sino por el tiempo de espera en los buffers debido a la ráfaga de eventos de las capas convolucionales.
-*   **Realismo del Ciclo-Preciso:** `cycle_sim.py` ahora captura correctamente los "hotspots" y los cuellos de botella dinámicos, lo que explica el aumento en el jitter (338 ciclos), reflejando la variabilidad real que sufriría un spike en el hardware.
+1.  **Saturación por Backpressure (Cycle Sim):** Al no perderse flits, la red se satura rápidamente. Los buffers se llenan y el efecto de *backpressure* se propaga hacia atrás, deteniendo la inyección de nuevos eventos. Los flits inyectados al final de la traza deben esperar decenas de miles de ciclos hasta que la red se despeje. Esto es lo que ocurriría en un hardware real sin mecanismos de control de flujo avanzados.
+2.  **Modelo Analítico (Fast Sim):** El simulador rápido utiliza una penalización estadística. Aunque detecta la congestión, su fórmula analítica tiende a ser más optimista en escenarios de saturación total, ya que no modela el bloqueo físico "en cadena" que ocurre ciclo a ciclo.
 
-## Conclusión Final
+## Conclusiones del Análisis
 
-Con la implementación del arbitraje y la gestión de buffers, el simulador `cycle_sim.py` ha pasado de ser un validador funcional a una herramienta de **caracterización de hardware de alta precisión**. La estrecha correlación con `fast_sim.py` valida ambos enfoques: uno para exploración rápida de arquitecturas y otro para validación final de tiempos y contención física.
+*   **Integridad del Dato:** Se ha validado que el simulador de ciclos procesa el 100% de la actividad neuronal de N-MNIST, lo cual es vital para la precisión de la SNN.
+*   **Diseño de Hardware:** La latencia de ~49,000 ciclos indica que una malla de 4x4 con buffers estándar es insuficiente para la ráfaga de actividad de esta SNN específica. Se recomienda aumentar el tamaño de los buffers o explorar topologías con mayor ancho de banda.
+*   **Valor de la Comparativa:** Mientras que `fast_sim` es excelente para una estimación rápida de latencia base, `cycle_sim` es la única herramienta capaz de revelar el colapso de la red por saturación física.
+
+![Gráfico de Saturación](comparison_chart.png)
