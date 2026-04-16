@@ -28,105 +28,63 @@ class Router:
 
     def run(self):
         while True:
-            # Etapa 1: Arbitraje de Entrada (Input Arbitration - IA) y Buffer de Entrada (Input Buffer - IB)
-            # Los flits llegan a los input_buffers de forma asíncrona a través de receive_flit
+            # Procesar todos los buffers en este ciclo
+            self._process_input_buffers_sync()
+            self._process_output_buffers_sync()
+            yield self.env.timeout(1)
 
-            # Etapa 2: Enrutamiento (Routing - RC) y Asignación de Switch (Switch Allocation - SA)
-            # Mover flits de input_buffers a output_buffers
-            yield self.env.process(self._process_input_buffers())
-
-            # Etapa 3: Asignación de Puerto (Port Allocation - PA) y Travesía de Enlace (Link Traversal - LT)
-            # Mover flits de output_buffers a los routers vecinos o localmente
-            yield self.env.process(self._process_output_buffers())
-
-            yield self.env.timeout(1) # Un ciclo de reloj
-
-    def _process_input_buffers(self):
-        # Arbitrar entre los input_buffers y mover flits a los output_buffers
-        for _ in range(NUM_PORTS): # Intentar arbitrar todos los puertos una vez por ciclo
-            port_to_check = self.next_input_port_to_arbitrate
-            self.next_input_port_to_arbitrate = (self.next_input_port_to_arbitrate + 1) % NUM_PORTS
-
-            if port_to_check == LOCAL: # Flits inyectados localmente
-                # La inyección local se maneja directamente en la red, no a través de un buffer de entrada
-                continue
-
-            if len(self.input_buffers[port_to_check].items) > 0: # Si hay flits en el buffer
-                flit = yield self.input_buffers[port_to_check].get() # Obtener el flit
+    def _process_input_buffers_sync(self):
+        for port in range(NUM_PORTS):
+            if len(self.input_buffers[port].items) > 0:
+                # Usamos una forma no bloqueante de obtener del Store
+                # SimPy Store.get() devuelve un evento, pero podemos acceder a .items
+                flit = self.input_buffers[port].items.pop(0)
                 
-                # Lógica de Enrutamiento XY (simplificada para malla)
-                dest_x = list(flit.destination_nodes)[0] % self.mesh_dim_x # Asumimos un destino principal para enrutamiento
-                dest_y = list(flit.destination_nodes)[0] // self.mesh_dim_x
+                # Asegurar que flit.destination_nodes sea un set
+                dest_nodes = flit.destination_nodes
+                if isinstance(dest_nodes, list):
+                    dest_nodes = set(dest_nodes)
                 
+                # Para enrutamiento XY, tomamos el primer destino
+                target = list(dest_nodes)[0]
+                dest_x = target % self.mesh_dim_x
+                dest_y = target // self.mesh_dim_x
                 curr_x = self.id % self.mesh_dim_x
                 curr_y = self.id // self.mesh_dim_x
 
                 next_ports = []
-
-                if flit.destination_nodes == {self.id}: # Si el flit es para este router
+                # Si este nodo es uno de los destinos, entregar localmente
+                if self.id in dest_nodes:
                     next_ports.append(LOCAL)
-                else:
-                    # Enrutamiento XY
-                    if curr_x < dest_x: # Necesita ir al Este
-                        next_ports.append(EAST)
-                    elif curr_x > dest_x: # Necesita ir al Oeste
-                        next_ports.append(WEST)
-                    elif curr_y < dest_y: # Necesita ir al Sur
-                        next_ports.append(SOUTH)
-                    elif curr_y > dest_y: # Necesita ir al Norte
-                        next_ports.append(NORTH)
-                    else: # Ya está en el nodo X,Y pero no es el destino final (multicast a otros nodos)
-                        # Esto es una simplificación. En un NoC real, el multicast es más complejo.
-                        # Aquí, si ya está en el nodo correcto, lo enviamos localmente y a otros destinos si los hay.
-                        next_ports.append(LOCAL)
-                        # Para multicast, si hay múltiples destinos, se debería replicar el flit
-                        # y enviarlo por diferentes puertos.
-                        # Por ahora, el enrutamiento XY solo busca el primer destino.
-                        # La replicación para multicast se hará en la etapa de SA/PA.
+                
+                # Enrutamiento XY hacia el destino
+                if curr_x < dest_x: next_ports.append(EAST)
+                elif curr_x > dest_x: next_ports.append(WEST)
+                elif curr_y < dest_y: next_ports.append(SOUTH)
+                elif curr_y > dest_y: next_ports.append(NORTH)
+                elif self.id == target and LOCAL not in next_ports:
+                    next_ports.append(LOCAL)
 
-                # Lógica de Asignación de Switch (SA) y replicación para Multicast
-                for dest_node in flit.destination_nodes:
-                    if dest_node == self.id: # Si este router es uno de los destinos
-                        if LOCAL not in next_ports: # Asegurarse de que se entregue localmente
-                            next_ports.append(LOCAL)
-
-                # Para cada puerto de salida determinado por el enrutamiento y multicast
                 for out_port in next_ports:
                     if out_port == LOCAL:
-                        # Entregar localmente inmediatamente (no pasa por output_buffer)
                         flit.timestamp_arrival = self.env.now
                         self.flits_received_local.append(flit)
-                        # Marcar el paquete como entregado a este destino
-                        # Esto se manejará en la clase Network para actualizar el Packet original
                     else:
-                        # Replicar el flit para cada puerto de salida si es multicast
                         replicated_flit = Flit(flit.packet_id, flit.source_node, self.id, list(flit.destination_nodes), 
                                                flit.flit_type, flit.timestamp_injection, flit.packet_type_str, flit.size)
-                        replicated_flit.path = list(flit.path) + [self.id] # Actualizar camino
-                        
-                        # Intentar poner el flit en el output_buffer
-                        try:
-                            yield self.output_buffers[out_port].put(replicated_flit)
-                        except Exception: # SimPy Store no lanza QueueFull normalmente # Esto no debería ocurrir con Store
-                            print(f"[{self.env.now}] Router {self.id}: Output buffer {out_port} lleno. Flit descartado.")
-                            # En un simulador real, esto indicaría congestión y el flit se reintentaría
+                        replicated_flit.path = list(flit.path) + [self.id]
+                        self.output_buffers[out_port].put(replicated_flit)
 
-    def _process_output_buffers(self):
-        # Arbitrar entre los output_buffers y enviar flits a los enlaces
-        for _ in range(NUM_PORTS): # Intentar arbitrar todos los puertos una vez por ciclo
-            port_to_check = self.next_output_port_to_arbitrate
-            self.next_output_port_to_arbitrate = (self.next_output_port_to_arbitrate + 1) % NUM_PORTS
+    def _process_output_buffers_sync(self):
+        for port in range(NUM_PORTS):
+            if port == LOCAL: continue
+            if len(self.output_buffers[port].items) > 0:
+                flit = self.output_buffers[port].items.pop(0)
+                dest_router_id = self.get_neighbor_id(port)
+                if dest_router_id != -1:
+                    self.flits_sent_out[port].append(flit)
 
-            if port_to_check == LOCAL: # No se envía nada localmente desde aquí
-                continue
 
-            if len(self.output_buffers[port_to_check].items) > 0: # Si hay flits en el buffer
-                flit = yield self.output_buffers[port_to_check].get() # Obtener el flit
-                
-                # Enviar el flit a través del enlace de red
-                # La lógica de envío real se manejará en la clase Network
-                self.flits_sent_out[port_to_check].append(flit) # Para métricas
-                # La clase Network se encargará de pasarlo al router destino
 
     def receive_flit(self, flit, in_port):
         # Método para que la red inyecte flits en los input_buffers de este router

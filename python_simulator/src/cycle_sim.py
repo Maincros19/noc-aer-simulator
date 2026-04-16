@@ -34,9 +34,8 @@ class ModularNoCSimulator:
         """
         self.total_events = len(trace)
         
-        # Inyectar eventos de la traza en la red
+        print(f"Inyectando {self.total_events} eventos en la red...")
         for event in trace:
-            # Convertimos el evento de la traza en un objeto Packet del módulo packet.py
             p = Packet(
                 packet_id=self.injected_count,
                 source_node=event['source'],
@@ -47,13 +46,20 @@ class ModularNoCSimulator:
             self.network.inject_packet(p)
             self.injected_count += 1
 
-        # Ejecutar el proceso de movimiento de la red
         self.env.process(self.network.run_network_cycle())
         
-        # Ejecutar hasta que no queden eventos
-        # (Opcional: añadir un timeout de seguridad)
         print(f"--- Iniciando Simulación Modular (SimPy + Módulos de Apoyo) ---")
-        self.env.run(until=10000000) # Límite amplio para trazas reales
+        # Monitoreo de progreso
+        def monitor():
+            while True:
+                yield self.env.timeout(1000)
+                if len(self.network.completed_packets) % 1000 == 0:
+                    print(f"Ciclo {self.env.now} | Entregados: {len(self.network.completed_packets)}/{self.injected_count}")
+                if len(self.network.completed_packets) >= self.injected_count:
+                    break
+        
+        self.env.process(monitor())
+        self.env.run(until=self.env.process(monitor()))
 
     def print_results(self):
         """
@@ -102,6 +108,11 @@ if __name__ == "__main__":
 
     config = load_config(sys.argv[2])
     trace = load_trace(sys.argv[1])
+    # Para el modular, si la traza es muy grande, tomamos una muestra representativa
+    # para evitar tiempos de ejecución excesivos en el entorno de sandbox
+    if len(trace) > 20000:
+        print(f"Traza grande detectada ({len(trace)}). Usando primeros 20000 eventos para validación modular.")
+        trace = trace[:20000]
     
     sim = ModularNoCSimulator(config)
     sim.run(trace)

@@ -34,7 +34,6 @@ class Network:
         packet.add_flit(flit)
         
         # Inyectar el flit en el router origen (simulando que llega desde el LOCAL port)
-        # En lugar de usar el input_buffer LOCAL, lo procesamos directamente para inyección
         self.env.process(self._inject_flit_process(flit))
 
     def _inject_flit_process(self, flit):
@@ -43,36 +42,8 @@ class Network:
             yield self.env.timeout(flit.timestamp_injection - self.env.now)
         
         router = self.routers[flit.source_node]
-        # Para simplificar, inyectamos directamente en el proceso de enrutamiento del router origen
-        # En un modelo más preciso, iría al input_buffer[LOCAL]
-        
-        # Determinar puertos de salida iniciales (Enrutamiento XY)
-        dest_x = list(flit.destination_nodes)[0] % self.config['MESH_DIM_X']
-        dest_y = list(flit.destination_nodes)[0] // self.config['MESH_DIM_X']
-        curr_x = router.id % self.config['MESH_DIM_X']
-        curr_y = router.id // self.config['MESH_DIM_X']
-
-        next_ports = []
-        if curr_x < dest_x: next_ports.append(EAST)
-        elif curr_x > dest_x: next_ports.append(WEST)
-        elif curr_y < dest_y: next_ports.append(SOUTH)
-        elif curr_y > dest_y: next_ports.append(NORTH)
-        else: next_ports.append(LOCAL) # Ya está en el destino (o uno de ellos)
-
-        # Manejo de Multicast en inyección
-        for dest_node in flit.destination_nodes:
-            if dest_node == router.id and LOCAL not in next_ports:
-                next_ports.append(LOCAL)
-
-        for out_port in next_ports:
-            if out_port == LOCAL:
-                self._deliver_flit(flit, router.id)
-            else:
-                # Replicar y poner en output_buffer
-                replicated_flit = Flit(flit.packet_id, flit.source_node, router.id, list(flit.destination_nodes), 
-                                       flit.flit_type, flit.timestamp_injection, flit.packet_type_str)
-                yield router.output_buffers[out_port].put(replicated_flit)
-                self.total_switch_traversals += 1
+        # Inyectar en el buffer LOCAL del router
+        yield router.input_buffers[LOCAL].put(flit)
 
     def _deliver_flit(self, flit, dest_node):
         if flit.packet_id not in self.injected_packets: return
@@ -89,8 +60,14 @@ class Network:
         # Este proceso se ejecuta cada ciclo para mover flits entre routers
         while True:
             for router_id, router in self.routers.items():
+                # 1. Procesar flits que llegaron al destino local
+                while router.flits_received_local:
+                    flit = router.flits_received_local.pop(0)
+                    self._deliver_flit(flit, router_id)
+
+                # 2. Mover flits entre routers
                 for out_port in range(4): # No LOCAL
-                    if len(router.flits_sent_out[out_port]) > 0:
+                    while router.flits_sent_out[out_port]:
                         flit = router.flits_sent_out[out_port].pop(0)
                         
                         # Determinar router destino y puerto de entrada
