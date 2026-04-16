@@ -7,7 +7,7 @@ Network::Network(int dim_x, int dim_y, EventQueue& eq)
     for (int y = 0; y < dim_y; ++y) {
         for (int x = 0; x < dim_x; ++x) {
             int router_id = getRouterId(x, y);
-            routers[router_id] = new Router(router_id, x, y, event_queue);
+            routers[router_id] = new Router(router_id, x, y, dim_x, dim_y, event_queue);
         }
     }
 }
@@ -22,7 +22,7 @@ void Network::addRouter(int id, int x, int y) {
     // Este método podría usarse para añadir routers de forma más flexible si no es una malla regular
     // Por ahora, los routers se crean en el constructor para una malla.
     if (routers.find(id) == routers.end()) {
-        routers[id] = new Router(id, x, y, event_queue);
+        routers[id] = new Router(id, x, y, dim_x, dim_y, event_queue);
     } else {
         std::cerr << "Error: Router with ID " << id << " already exists." << std::endl;
     }

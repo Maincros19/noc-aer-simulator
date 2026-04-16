@@ -1,0 +1,2 @@
+/usr/bin/ar qc libnoc_simulator_core.a CMakeFiles/noc_simulator_core.dir/src/Network.cpp.o CMakeFiles/noc_simulator_core.dir/src/Router.cpp.o
+/usr/bin/ranlib libnoc_simulator_core.a

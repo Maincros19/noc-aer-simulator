@@ -58,8 +58,8 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .export_values();
 
     py::class_<Router>(m, "Router")
-        .def(py::init<int, int, int, EventQueue&>(),
-             py::arg("id"), py::arg("x"), py::arg("y"), py::arg("event_queue"), py::keep_alive<1, 5>() /* Essential for EventQueue reference */)
+        .def(py::init<int, int, int, int, int, EventQueue&>(),
+             py::arg("id"), py::arg("x"), py::arg("y"), py::arg("dim_x"), py::arg("dim_y"), py::arg("event_queue"), py::keep_alive<1, 6>() /* Essential for EventQueue reference */)
         .def("receiveFlit", &Router::receiveFlit)
         .def("processFlit", &Router::processFlit)
         .def("injectFlit", &Router::injectFlit)

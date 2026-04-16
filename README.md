@@ -10,6 +10,7 @@ El núcleo del simulador ha sido migrado de Python a **C++** utilizando un motor
 
 - **Núcleo DES en C++:** Motor basado en una cola de prioridad (`std::priority_queue`) que salta instantáneamente entre eventos, optimizando el tráfico disperso (sparse) típico de las SNN.
 - **Integración con Python (pybind11):** Inyección directa de spikes de memoria a memoria desde Python al núcleo C++, eliminando el cuello de botella de I/O de disco.
+- **Topología Configurable:** Soporte para mallas $M \times N$ personalizables (default 4x4).
 - **Soporte N-MNIST (Tonic):** Integración nativa con el dataset N-MNIST para generar trazas de tráfico realistas.
 - **Métricas Neuromórficas:** Extracción automática de latencia de spike, tasa de entrega (delivery ratio) y energía por evento (pJ/spike).
 - **Gestión de Congestión:** Buffers de entrada configurables (1024 flits) y arbitraje Round-Robin.
@@ -60,6 +61,7 @@ El script `nmnist_train_sim.py` realiza el flujo completo:
 4. Ejecuta la simulación DES y reporta métricas.
 
 ```bash
+# Ejecuta la simulación por defecto (4x4) y un ejemplo 8x8
 python3 nmnist_train_sim.py
 ```
 

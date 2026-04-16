@@ -20,7 +20,7 @@ class Router {
 public:
     static const int BUFFER_SIZE = 1024; // Aumentado para manejar ráfagas de spikes neuromórficos
 
-    Router(int id, int x, int y, EventQueue& eq);
+    Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq);
 
     void receiveFlit(Flit flit, Port in_port, uint64_t current_time);
     void processFlit(uint64_t current_time);
@@ -37,6 +37,8 @@ private:
     int id;
     int x_coord;
     int y_coord;
+    int dim_x;
+    int dim_y;
     EventQueue& event_queue;
 
     // Buffers de entrada para cada puerto
