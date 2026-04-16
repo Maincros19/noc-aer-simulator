@@ -15,7 +15,7 @@ Puedes encontrar ejemplos de ejecución y resultados reales en la carpeta [examp
 
 ## Estructura del Proyecto
 
-- `traffic_generator/`: Generador de trazas basado en **snntorch** y **tonic**.
+- `traffic_generator/`: Generador de trazas basado en **snntorch** y **tonic**. Incluye entrenamiento de SNN sobre N-MNIST.
 - `python_simulator/`: Simulador de NoC optimizado en Python.
   - `src/`: Contiene los scripts de simulación (`fast_sim.py`, `cycle_sim.py`, `network.py`, `router.py`, etc.).
   - `config/`: Archivos de configuración de la topología (ej. `mesh_4x4.config`).
@@ -36,19 +36,19 @@ Puedes encontrar ejemplos de ejecución y resultados reales en la carpeta [examp
 
 ## Instrucciones de Uso
 
-### 1. Generar la Traza
-Navega a la carpeta del generador y ejecuta el script:
+### 1. Generar la Traza Real (N-MNIST)
+Navega a la carpeta del generador y ejecuta el script (entrenará la red durante 100 iteraciones):
 ```bash
 cd traffic_generator
 python3 network_trace_generator_v2.py
 ```
-Esto generará el archivo `generic_trace.txt`.
+Esto generará el archivo `nmnist_trace.txt`.
 
 ### 2. Ejecutar la Simulación
 Navega a la carpeta del simulador y ejecuta el script rápido:
 ```bash
 cd python_simulator/src
-python3 fast_sim.py ../../traffic_generator/generic_trace.txt ../config/mesh_4x4.config
+python3 fast_sim.py ../../traffic_generator/nmnist_trace.txt ../config/mesh_4x4.config
 ```
 
 ## Métricas Calculadas
