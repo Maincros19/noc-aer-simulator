@@ -1,6 +1,6 @@
 import simpy
 import collections
-from .packet import Flit, Packet
+from packet import Flit, Packet
 
 # Definiciones de puertos (igual que en C++)
 NORTH, EAST, SOUTH, WEST, LOCAL = 0, 1, 2, 3, 4
@@ -55,8 +55,8 @@ class Router:
                 flit = yield self.input_buffers[port_to_check].get() # Obtener el flit
                 
                 # Lógica de Enrutamiento XY (simplificada para malla)
-                dest_x = flit.destination_nodes[0] % self.mesh_dim_x # Asumimos un destino principal para enrutamiento
-                dest_y = flit.destination_nodes[0] // self.mesh_dim_x
+                dest_x = list(flit.destination_nodes)[0] % self.mesh_dim_x # Asumimos un destino principal para enrutamiento
+                dest_y = list(flit.destination_nodes)[0] // self.mesh_dim_x
                 
                 curr_x = self.id % self.mesh_dim_x
                 curr_y = self.id // self.mesh_dim_x
@@ -107,7 +107,7 @@ class Router:
                         # Intentar poner el flit en el output_buffer
                         try:
                             yield self.output_buffers[out_port].put(replicated_flit)
-                        except simpy.exceptions.QueueFull: # Esto no debería ocurrir con Store
+                        except Exception: # SimPy Store no lanza QueueFull normalmente # Esto no debería ocurrir con Store
                             print(f"[{self.env.now}] Router {self.id}: Output buffer {out_port} lleno. Flit descartado.")
                             # En un simulador real, esto indicaría congestión y el flit se reintentaría
 
@@ -133,7 +133,7 @@ class Router:
         # Esto se llamará desde la clase Network
         try:
             self.input_buffers[in_port].put(flit)
-        except simpy.exceptions.QueueFull:
+        except Exception: # SimPy Store no lanza QueueFull normalmente
             print(f"[{self.env.now}] Router {self.id}: Input buffer {in_port} lleno. Flit descartado.")
             # En un simulador real, esto indicaría congestión y el flit se reintentaría
 

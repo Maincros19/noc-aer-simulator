@@ -1,6 +1,6 @@
 import simpy
-from .router import Router, NORTH, EAST, SOUTH, WEST, LOCAL
-from .packet import Packet, Flit
+from router import Router, NORTH, EAST, SOUTH, WEST, LOCAL
+from packet import Packet, Flit
 
 class Network:
     def __init__(self, env, config):
@@ -75,6 +75,7 @@ class Network:
                 self.total_switch_traversals += 1
 
     def _deliver_flit(self, flit, dest_node):
+        if flit.packet_id not in self.injected_packets: return
         packet = self.injected_packets[flit.packet_id]
         if dest_node not in packet.delivered_to:
             packet.delivered_to.add(dest_node)
