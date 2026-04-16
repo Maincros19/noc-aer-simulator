@@ -39,6 +39,9 @@ cd python_simulator/src
 python3 fast_sim.py ../../traffic_generator/generic_trace.txt ../config/mesh_4x4.config
 ```
 
+## Documentación Adicional
+- [Comparación de Simuladores: `fast_sim.py` vs. `main.py`](COMPARISON.md)
+
 ## Métricas Calculadas
 - **Latencia Promedio:** Tiempo de tránsito de los spikes en ciclos de reloj.
 - **Jitter:** Variabilidad temporal de la latencia (crítico para SNN).
