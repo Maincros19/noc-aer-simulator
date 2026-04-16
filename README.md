@@ -9,14 +9,17 @@ Este proyecto es un simulador de **Network-on-Chip (NoC)** optimizado para el pr
 | `fast_sim.py` | **Analítico y Rápido** | Calcula latencias y congestión mediante fórmulas. Ideal para millones de eventos. | Prototipado rápido, exploración de diseños, análisis de tendencias. |
 | `cycle_sim.py` | **Basado en Ciclos** | Modela routers y paquetes ciclo a ciclo. Preciso para detalles de hardware. | Validación de lógica de control de flujo, diseño de buffers, algoritmos de enrutamiento. |
 
-Para una comparación más detallada, consulta [Comparación de Simuladores: `fast_sim.py` vs. `main.py`](COMPARISON.md).
+Para una comparación más detallada, consulta [Comparación de Simuladores: `fast_sim.py` vs. `cycle_sim.py`](COMPARISON.md).
+
+Puedes encontrar ejemplos de ejecución y resultados reales en la carpeta [examples/](examples/).
 
 ## Estructura del Proyecto
 
 - `traffic_generator/`: Generador de trazas basado en **snntorch** y **tonic**.
 - `python_simulator/`: Simulador de NoC optimizado en Python.
-  - `src/`: Contiene los scripts de simulación (`fast_sim.py`, `main.py`, `network.py`, `router.py`, etc.).
+  - `src/`: Contiene los scripts de simulación (`fast_sim.py`, `cycle_sim.py`, `network.py`, `router.py`, etc.).
   - `config/`: Archivos de configuración de la topología (ej. `mesh_4x4.config`).
+- `examples/`: Carpeta con ejemplos de ejecución, trazas de prueba y resultados comparativos.
 
 ## Requisitos del Sistema
 

@@ -1,0 +1,15 @@
+
+--- Resultados de la Simulación (Modo Ciclo Simplificado) ---
+Ciclos totales: 11
+Flits inyectados: 8
+Latencia promedio: 4.25 ciclos
+Jitter (StdDev): 1.56 ciclos
+Total Hops: 34
+Energía Estimada: 38.00 unidades
+
+--- Top 5 Enlaces más Activos ---
+Nodo 1 [EAST]: 3 flits
+Nodo 7 [SOUTH]: 3 flits
+Nodo 0 [EAST]: 2 flits
+Nodo 2 [EAST]: 2 flits
+Nodo 2 [WEST]: 2 flits
