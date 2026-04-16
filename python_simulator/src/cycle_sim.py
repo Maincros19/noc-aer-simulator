@@ -8,6 +8,7 @@ NORTH, EAST, SOUTH, WEST, LOCAL = 0, 1, 2, 3, 4
 PORT_NAMES = {NORTH: "NORTH", EAST: "EAST", SOUTH: "SOUTH", WEST: "WEST", LOCAL: "LOCAL"}
 
 class Flit:
+    __slots__ = ['packet_id', 'source', 'destination', 'timestamp_injection', 'current_node', 'hops', 'timestamp_arrival']
     def __init__(self, packet_id, source, destination, timestamp_injection):
         self.packet_id = packet_id
         self.source = source
@@ -15,8 +16,16 @@ class Flit:
         self.timestamp_injection = timestamp_injection
         self.current_node = source
         self.hops = 0
+        self.timestamp_arrival = -1
 
-class CycleSimulator:
+class Router:
+    __slots__ = ['node_id', 'input_buffers', 'next_input_to_serve']
+    def __init__(self, node_id, buffer_size):
+        self.node_id = node_id
+        self.input_buffers = [collections.deque(maxlen=buffer_size) for _ in range(5)]
+        self.next_input_to_serve = [0] * 5
+
+class HighFidelityCycleSimulator:
     def __init__(self, config):
         self.dim_x = config['MESH_DIM_X']
         self.dim_y = config['MESH_DIM_Y']
@@ -24,17 +33,20 @@ class CycleSimulator:
         self.buffer_size = config['BUFFER_SIZE']
         
         self.current_cycle = 0
-        self.pending_flits = [] # Flits actualmente en tránsito
-        self.completed_flits = []
+        self.routers = [Router(i, self.buffer_size) for i in range(self.num_nodes)]
+        self.completed_count = 0
+        self.total_latency = 0
+        self.latency_sq_sum = 0
         self.link_activity = collections.defaultdict(lambda: collections.defaultdict(int))
         self.total_hops = 0
+        self.injected_count = 0
 
     def get_coordinates(self, node_id):
         return node_id % self.dim_x, node_id // self.dim_x
 
     def get_next_port(self, current_node, dest_node):
-        curr_x, curr_y = self.get_coordinates(current_node)
-        dest_x, dest_y = self.get_coordinates(dest_node)
+        curr_x, curr_y = current_node % self.dim_x, current_node // self.dim_x
+        dest_x, dest_y = dest_node % self.dim_x, dest_node // self.dim_x
         
         if curr_x < dest_x: return EAST
         if curr_x > dest_x: return WEST
@@ -42,35 +54,64 @@ class CycleSimulator:
         if curr_y > dest_y: return NORTH
         return LOCAL
 
+    def get_neighbor_id(self, node_id, port):
+        x, y = node_id % self.dim_x, node_id // self.dim_x
+        if port == NORTH and y > 0: return node_id - self.dim_x
+        if port == SOUTH and y < self.dim_y - 1: return node_id + self.dim_x
+        if port == EAST and x < self.dim_x - 1: return node_id + 1
+        if port == WEST and x > 0: return node_id - 1
+        return -1
+
     def step(self, new_events):
         # 1. Inyectar nuevos eventos
         for event in new_events:
-            flit = Flit(len(self.completed_flits) + len(self.pending_flits), 
-                        event['source'], event['destination'], self.current_cycle)
-            self.pending_flits.append(flit)
+            flit = Flit(self.injected_count, event['source'], event['destination'], self.current_cycle)
+            router = self.routers[flit.source]
+            if len(router.input_buffers[LOCAL]) < self.buffer_size:
+                router.input_buffers[LOCAL].append(flit)
+                self.injected_count += 1
+            # Si el buffer está lleno, el evento se pierde o se retrasa. 
+            # Para N-MNIST (411k), la inyección masiva en un solo ciclo es común.
 
-        # 2. Mover flits en tránsito (Simulación de un ciclo)
-        still_pending = []
-        for flit in self.pending_flits:
-            port = self.get_next_port(flit.current_node, flit.destination)
-            
-            if port == LOCAL:
-                flit.timestamp_arrival = self.current_cycle
-                self.completed_flits.append(flit)
-            else:
-                # Mover al siguiente nodo
-                self.link_activity[flit.current_node][port] += 1
-                self.total_hops += 1
-                flit.hops += 1
-                
-                if port == EAST: flit.current_node += 1
-                elif port == WEST: flit.current_node -= 1
-                elif port == SOUTH: flit.current_node += self.dim_x
-                elif port == NORTH: flit.current_node -= self.dim_x
-                
-                still_pending.append(flit)
-        
-        self.pending_flits = still_pending
+        # 2. Movimiento entre Routers
+        transfers = [] # (dest_router_idx, dest_port, flit)
+
+        for router_id in range(self.num_nodes):
+            router = self.routers[router_id]
+            for out_port in range(5):
+                start_in = router.next_input_to_serve[out_port]
+                for i in range(5):
+                    in_port = (start_in + i) % 5
+                    buffer = router.input_buffers[in_port]
+                    if buffer:
+                        flit = buffer[0]
+                        if self.get_next_port(router_id, flit.destination) == out_port:
+                            if out_port == LOCAL:
+                                buffer.popleft()
+                                lat = self.current_cycle + 1 - flit.timestamp_injection
+                                self.total_latency += lat
+                                self.latency_sq_sum += lat * lat
+                                self.completed_count += 1
+                                router.next_input_to_serve[out_port] = (in_port + 1) % 5
+                                break
+                            else:
+                                neighbor_id = self.get_neighbor_id(router_id, out_port)
+                                if neighbor_id != -1:
+                                    neighbor = self.routers[neighbor_id]
+                                    in_port_neighbor = [SOUTH, WEST, NORTH, EAST][out_port] # Opuesto
+                                    if len(neighbor.input_buffers[in_port_neighbor]) < self.buffer_size:
+                                        buffer.popleft()
+                                        flit.current_node = neighbor_id
+                                        flit.hops += 1
+                                        transfers.append((neighbor_id, in_port_neighbor, flit))
+                                        self.link_activity[router_id][out_port] += 1
+                                        self.total_hops += 1
+                                        router.next_input_to_serve[out_port] = (in_port + 1) % 5
+                                        break
+
+        for d_idx, d_port, flit in transfers:
+            self.routers[d_idx].input_buffers[d_port].append(flit)
+
         self.current_cycle += 1
 
 def load_config(config_file):
@@ -89,11 +130,7 @@ def load_trace(trace_file):
         for line in f:
             parts = line.split()
             if len(parts) >= 3:
-                events.append({
-                    'timestamp': int(parts[0]),
-                    'source': int(parts[1]),
-                    'destination': int(parts[2])
-                })
+                events.append({'timestamp': int(parts[0]), 'source': int(parts[1]), 'destination': int(parts[2])})
     return events
 
 if __name__ == "__main__":
@@ -105,10 +142,12 @@ if __name__ == "__main__":
     trace = load_trace(sys.argv[1])
     trace.sort(key=lambda x: x['timestamp'])
 
-    sim = CycleSimulator(config)
-    
+    sim = HighFidelityCycleSimulator(config)
     event_idx = 0
-    while event_idx < len(trace) or sim.pending_flits:
+    
+    print(f"--- Iniciando Simulador de Ciclos de Alta Fidelidad (Optimizado) ---")
+    
+    while event_idx < len(trace) or any(any(b for b in r.input_buffers) for r in sim.routers):
         current_events = []
         while event_idx < len(trace) and trace[event_idx]['timestamp'] <= sim.current_cycle:
             current_events.append(trace[event_idx])
@@ -116,32 +155,21 @@ if __name__ == "__main__":
         
         sim.step(current_events)
         
-        if sim.current_cycle > 10000: # Safety break
-            print("AVISO: Límite de ciclos alcanzado.")
-            break
+        if sim.current_cycle % 10000 == 0 and sim.current_cycle > 0:
+            print(f"Ciclo {sim.current_cycle} | Entregados: {sim.completed_count} | En red: {sim.injected_count - sim.completed_count}")
 
-    # Resultados
-    print(f"\n--- Resultados de la Simulación (Modo Ciclo Simplificado) ---")
+        if sim.current_cycle > 5000000: break
+
+    print(f"\n--- Resultados de la Simulación (Alta Fidelidad) ---")
     print(f"Ciclos totales: {sim.current_cycle}")
-    print(f"Flits inyectados: {len(sim.completed_flits)}")
+    print(f"Flits inyectados: {sim.injected_count}")
+    print(f"Flits entregados: {sim.completed_count}")
     
-    latencies = [f.timestamp_arrival - f.timestamp_injection for f in sim.completed_flits]
-    if latencies:
-        avg_lat = sum(latencies) / len(latencies)
-        jitter = math.sqrt(sum((l - avg_lat)**2 for l in latencies) / len(latencies))
+    if sim.completed_count > 0:
+        avg_lat = sim.total_latency / sim.completed_count
+        var = (sim.latency_sq_sum / sim.completed_count) - (avg_lat * avg_lat)
         print(f"Latencia promedio: {avg_lat:.2f} ciclos")
-        print(f"Jitter (StdDev): {jitter:.2f} ciclos")
+        print(f"Jitter (StdDev): {math.sqrt(max(0, var)):.2f} ciclos")
     
     print(f"Total Hops: {sim.total_hops}")
-    energy = sim.total_hops * 1.0 + len(sim.completed_flits) * 0.5
-    print(f"Energía Estimada: {energy:.2f} unidades")
-    
-    print("\n--- Top 5 Enlaces más Activos ---")
-    activity = []
-    for node, ports in sim.link_activity.items():
-        for port, count in ports.items():
-            activity.append((node, port, count))
-    activity.sort(key=lambda x: x[2], reverse=True)
-    for i in range(min(5, len(activity))):
-        node, port, count = activity[i]
-        print(f"Nodo {node} [{PORT_NAMES[port]}]: {count} flits")
+    print(f"Energía Estimada: {sim.total_hops * 1.0 + sim.completed_count * 0.5:.2f} unidades")
