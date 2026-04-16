@@ -29,3 +29,39 @@ La enorme diferencia en la latencia (~49k vs ~367) se explica por cómo cada sim
 *   **Valor de la Comparativa:** Mientras que `fast_sim` es excelente para una estimación rápida de latencia base, `cycle_sim` es la única herramienta capaz de revelar el colapso de la red por saturación física.
 
 ![Gráfico de Saturación](comparison_chart.png)
+
+## Análisis de Régimen de Operación: Baja Carga
+
+Para comprender mejor el comportamiento de la red en condiciones no saturadas, se realizó una simulación con una traza de **baja carga** (los primeros 1,000 eventos de N-MNIST).
+
+### Resultados de Baja Carga (1,000 flits)
+
+| Métrica | `cycle_sim.py` (Alta Fidelidad) | `fast_sim.py` (Analítico) |
+| :------------------ | :-------------------- | :-------------------- |
+| **Flits Procesados** | **1,000**             | **1,000**             |
+| **Latencia Promedio** | **211.25 ciclos**     | **8.87 ciclos**       |
+| **Jitter (StdDev)** | **171.39 ciclos**     | **2.92 ciclos**       |
+| **Total Hops**      | **3,032**             | **3,032**             |
+
+### Comparativa Baja Carga vs. Alta Carga
+
+| Escenario | `cycle_sim.py` (Latencia Promedio) | `fast_sim.py` (Latencia Promedio) |
+| :---------------- | :--------------------------------- | :-------------------------------- |
+| **Baja Carga (1k)** | **211.25 ciclos**                  | **8.87 ciclos**                   |
+| **Alta Carga (411k)** | **49,288.80 ciclos**               | **367.79 ciclos**                 |
+
+![Comparativa de Carga](load_comparison.png)
+
+### Interpretación de los Resultados de Baja Carga
+
+1.  **Diferencia Persistente:** Incluso con baja carga, `cycle_sim.py` sigue reportando una latencia significativamente mayor que `fast_sim.py`. Esto se debe a que, aunque no hay saturación global, los mecanismos de arbitraje y la gestión de buffers introducen una latencia base por cada salto y por las micro-contenciones locales que `fast_sim.py` no modela con la misma granularidad. `fast_sim.py` sigue siendo más optimista en su estimación de latencia.
+2.  **Escalabilidad de la Congestión:** La latencia de `cycle_sim.py` escala drásticamente de 211 ciclos (baja carga) a casi 50,000 ciclos (alta carga), lo que confirma que el *backpressure* es el factor dominante en la saturación de la red. En contraste, `fast_sim.py` muestra un aumento de latencia de 8.87 a 367.79 ciclos, un incremento considerable pero mucho menos abrupto, ya que su modelo analítico suaviza los picos de congestión.
+
+## Conclusión General
+
+La combinación de simulaciones de baja y alta carga, junto con la evolución del modelo de `cycle_sim.py`, proporciona una visión completa del comportamiento de la NoC:
+
+*   **`fast_sim.py`:** Es ideal para la exploración rápida del espacio de diseño y para obtener estimaciones de latencia en escenarios de baja a media carga, donde la congestión no es el factor dominante.
+*   **`cycle_sim.py` (Alta Fidelidad):** Es indispensable para la validación detallada del hardware, la identificación de cuellos de botella por *backpressure* y la caracterización del rendimiento en escenarios de saturación crítica. Revela las limitaciones reales de la arquitectura bajo cargas intensas.
+
+Ambos simuladores son herramientas complementarias que, utilizadas en conjunto, permiten un diseño robusto y optimizado de NoCs para sistemas neuromórficos.

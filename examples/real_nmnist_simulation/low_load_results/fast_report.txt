@@ -1,0 +1,17 @@
+--- Iniciando Simulador Rápido NoC AER ---
+Eventos cargados: 1000
+
+--- Resultados de la Simulación (Modo Rápido) ---
+Tiempo de ejecución: 0.00 segundos
+Flits procesados: 1000
+Latencia promedio: 8.87 ciclos
+Jitter (StdDev): 2.92 ciclos
+Total Hops: 3032
+Energía Estimada: 3532.00 unidades
+
+--- Top 5 Nodos más Activos ---
+Nodo 1: 723 eventos inyectados
+Nodo 4: 80 eventos inyectados
+Nodo 2: 56 eventos inyectados
+Nodo 5: 32 eventos inyectados
+Nodo 9: 18 eventos inyectados
