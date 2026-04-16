@@ -11,7 +11,7 @@ Este proyecto es un simulador de **Network-on-Chip (NoC)** optimizado para el pr
 
 Para una comparación más detallada, consulta [Comparación de Simuladores: `fast_sim.py` vs. `cycle_sim.py`](COMPARISON.md).
 
-Puedes encontrar ejemplos de ejecución y resultados reales en la carpeta [examples/](examples/).
+Puedes encontrar ejemplos de ejecución y resultados reales en la carpeta [examples/](examples/). Para un análisis detallado de la simulación real de N-MNIST, consulta [aquí](examples/real_nmnist_simulation/ANALYSIS_NMNIST.md).
 
 ## Estructura del Proyecto
 
