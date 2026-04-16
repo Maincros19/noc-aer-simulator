@@ -144,7 +144,7 @@ def simulate(env, network, trace_events, config):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Uso: python3 main.py <trace_file> <config_file>")
+        print("Uso: python3 cycle_sim.py <trace_file> <config_file>")
         sys.exit(1)
 
     trace_file = sys.argv[1]
