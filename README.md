@@ -7,7 +7,7 @@ Este proyecto es un simulador de **Network-on-Chip (NoC)** optimizado para el pr
 | Simulador | Enfoque Principal | Características Clave | Casos de Uso |
 | :-------- | :---------------- | :-------------------- | :----------- |
 | `fast_sim.py` | **Analítico y Rápido** | Calcula latencias y congestión mediante fórmulas. Ideal para millones de eventos. | Prototipado rápido, exploración de diseños, análisis de tendencias. |
-| `cycle_sim.py` | **Basado en Ciclos** | Modela routers y paquetes ciclo a ciclo. Preciso para detalles de hardware. | Validación de lógica de control de flujo, diseño de buffers, algoritmos de enrutamiento. |
+| `cycle_sim.py` | **Arquitectura Avanzada** | Modela routers con **Canales Virtuales (VCs)** y **Control de Flujo por Créditos**. | Validación profesional de hardware, mitigación de HoL blocking, análisis de saturación real. |
 
 Para una comparación más detallada, consulta [Comparación de Simuladores: `fast_sim.py` vs. `cycle_sim.py`](COMPARISON.md).
 

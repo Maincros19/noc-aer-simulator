@@ -8,7 +8,7 @@ NORTH, EAST, SOUTH, WEST, LOCAL = 0, 1, 2, 3, 4
 PORT_NAMES = {NORTH: "NORTH", EAST: "EAST", SOUTH: "SOUTH", WEST: "WEST", LOCAL: "LOCAL"}
 
 class Flit:
-    __slots__ = ['packet_id', 'source', 'destination', 'timestamp_injection', 'current_node', 'hops', 'timestamp_arrival']
+    __slots__ = ['packet_id', 'source', 'destination', 'timestamp_injection', 'current_node', 'hops', 'timestamp_arrival', 'vc_id']
     def __init__(self, packet_id, source, destination, timestamp_injection):
         self.packet_id = packet_id
         self.source = source
@@ -17,25 +17,34 @@ class Flit:
         self.current_node = source
         self.hops = 0
         self.timestamp_arrival = -1
+        self.vc_id = 0 # ID del Canal Virtual asignado
 
 class Router:
-    __slots__ = ['node_id', 'input_buffers', 'next_input_to_serve']
-    def __init__(self, node_id, buffer_size):
+    __slots__ = ['node_id', 'input_buffers', 'next_input_to_serve', 'credits', 'num_vcs']
+    def __init__(self, node_id, buffer_size, num_vcs=2):
         self.node_id = node_id
-        # Buffers de entrada para cada puerto (FIFO)
-        self.input_buffers = [collections.deque(maxlen=buffer_size) for _ in range(5)]
-        # Estado del árbitro para cada puerto de salida (Round Robin)
+        self.num_vcs = num_vcs
+        # Buffers de entrada por puerto y por VC
+        # input_buffers[puerto][vc_id] = deque
+        self.input_buffers = [[collections.deque(maxlen=buffer_size // num_vcs) for _ in range(num_vcs)] for _ in range(5)]
+        
+        # Créditos disponibles en los vecinos (por puerto y por VC)
+        # Inicialmente, cada vecino tiene capacidad total del buffer/num_vcs
+        self.credits = [[buffer_size // num_vcs for _ in range(num_vcs)] for _ in range(5)]
+        
+        # Arbitraje Round Robin por puerto de salida
         self.next_input_to_serve = [0] * 5
 
-class HighFidelityCycleSimulator:
+class AdvancedNoCSimulator:
     def __init__(self, config):
         self.dim_x = config['MESH_DIM_X']
         self.dim_y = config['MESH_DIM_Y']
         self.num_nodes = config['NUM_NODES']
-        self.buffer_size = config['BUFFER_SIZE']
+        self.buffer_size = config.get('BUFFER_SIZE', 16)
+        self.num_vcs = config.get('NUM_VCS', 2) # Por defecto 2 canales virtuales
         
         self.current_cycle = 0
-        self.routers = [Router(i, self.buffer_size) for i in range(self.num_nodes)]
+        self.routers = [Router(i, self.buffer_size, self.num_vcs) for i in range(self.num_nodes)]
         self.completed_count = 0
         self.total_latency = 0
         self.latency_sq_sum = 0
@@ -43,7 +52,6 @@ class HighFidelityCycleSimulator:
         self.total_hops = 0
         self.injected_count = 0
         
-        # Buffer de espera para inyección si el puerto LOCAL está lleno
         self.injection_queues = [collections.deque() for _ in range(self.num_nodes)]
 
     def get_coordinates(self, node_id):
@@ -52,7 +60,6 @@ class HighFidelityCycleSimulator:
     def get_next_port(self, current_node, dest_node):
         curr_x, curr_y = current_node % self.dim_x, current_node // self.dim_x
         dest_x, dest_y = dest_node % self.dim_x, dest_node // self.dim_x
-        
         if curr_x < dest_x: return EAST
         if curr_x > dest_x: return WEST
         if curr_y < dest_y: return SOUTH
@@ -68,61 +75,99 @@ class HighFidelityCycleSimulator:
         return -1
 
     def step(self, new_events):
-        # 1. Añadir nuevos eventos a la cola de inyección del nodo correspondiente
+        # 1. Inyección
         for event in new_events:
             flit = Flit(self.injected_count, event['source'], event['destination'], event['timestamp'])
             self.injection_queues[flit.source].append(flit)
             self.injected_count += 1
 
-        # 2. Intentar inyectar flits de la cola al puerto LOCAL del router (si hay espacio)
         for i in range(self.num_nodes):
             router = self.routers[i]
             queue = self.injection_queues[i]
-            while queue and len(router.input_buffers[LOCAL]) < self.buffer_size:
-                router.input_buffers[LOCAL].append(queue.popleft())
+            # Inyectar en el primer VC disponible del puerto LOCAL
+            while queue:
+                injected = False
+                for vc in range(self.num_vcs):
+                    if len(router.input_buffers[LOCAL][vc]) < (self.buffer_size // self.num_vcs):
+                        flit = queue.popleft()
+                        flit.vc_id = vc
+                        router.input_buffers[LOCAL][vc].append(flit)
+                        injected = True
+                        break
+                if not injected: break
 
-        # 3. Movimiento entre Routers (Switch Traversal & Link Traversal)
-        transfers = [] # (dest_router_idx, dest_port, flit)
+        # 2. Movimiento (Arbitraje + Créditos)
+        transfers = [] # (dest_router_idx, dest_port, dest_vc, flit)
+        credit_returns = [] # (router_idx, port, vc)
 
         for router_id in range(self.num_nodes):
             router = self.routers[router_id]
             for out_port in range(5):
                 start_in = router.next_input_to_serve[out_port]
-                for i in range(5):
-                    in_port = (start_in + i) % 5
-                    buffer = router.input_buffers[in_port]
+                moved_in_this_port = False
+                
+                # Arbitraje entre puertos de entrada y VCs
+                for i in range(5 * self.num_vcs):
+                    in_port = ((start_in + i) // self.num_vcs) % 5
+                    in_vc = (start_in + i) % self.num_vcs
+                    
+                    buffer = router.input_buffers[in_port][in_vc]
                     if buffer:
                         flit = buffer[0]
                         if self.get_next_port(router_id, flit.destination) == out_port:
                             if out_port == LOCAL:
-                                # Entrega final
                                 buffer.popleft()
+                                # Devolver crédito al vecino que nos envió este flit
+                                if in_port != LOCAL:
+                                    neighbor_id = self.get_neighbor_id(router_id, in_port)
+                                    # El vecino que nos envió por su EAST nos ve por su WEST
+                                    rev_port = [SOUTH, WEST, NORTH, EAST, -1][in_port]
+                                    credit_returns.append((neighbor_id, rev_port, in_vc))
+                                
                                 lat = self.current_cycle + 1 - flit.timestamp_injection
                                 self.total_latency += lat
                                 self.latency_sq_sum += lat * lat
                                 self.completed_count += 1
-                                router.next_input_to_serve[out_port] = (in_port + 1) % 5
+                                router.next_input_to_serve[out_port] = (in_port * self.num_vcs + in_vc + 1) % (5 * self.num_vcs)
+                                moved_in_this_port = True
                                 break
                             else:
-                                # Movimiento a vecino
                                 neighbor_id = self.get_neighbor_id(router_id, out_port)
                                 if neighbor_id != -1:
-                                    neighbor = self.routers[neighbor_id]
-                                    # Puerto opuesto en el vecino
-                                    in_port_neighbor = [SOUTH, WEST, NORTH, EAST, -1][out_port]
-                                    if len(neighbor.input_buffers[in_port_neighbor]) < self.buffer_size:
-                                        buffer.popleft()
-                                        flit.current_node = neighbor_id
-                                        flit.hops += 1
-                                        transfers.append((neighbor_id, in_port_neighbor, flit))
-                                        self.link_activity[router_id][out_port] += 1
-                                        self.total_hops += 1
-                                        router.next_input_to_serve[out_port] = (in_port + 1) % 5
-                                        break
+                                    # Intentar asignar un VC en el vecino que tenga créditos
+                                    for next_vc in range(self.num_vcs):
+                                        if router.credits[out_port][next_vc] > 0:
+                                            buffer.popleft()
+                                            # Devolver crédito al vecino anterior (si no es local)
+                                            if in_port != LOCAL:
+                                                prev_neighbor_id = self.get_neighbor_id(router_id, in_port)
+                                                rev_port = [SOUTH, WEST, NORTH, EAST, -1][in_port]
+                                                credit_returns.append((prev_neighbor_id, rev_port, in_vc))
+                                            
+                                            flit.current_node = neighbor_id
+                                            flit.hops += 1
+                                            flit.vc_id = next_vc
+                                            
+                                            # Consumir crédito del vecino actual
+                                            router.credits[out_port][next_vc] -= 1
+                                            
+                                            in_port_neighbor = [SOUTH, WEST, NORTH, EAST, -1][out_port]
+                                            transfers.append((neighbor_id, in_port_neighbor, next_vc, flit))
+                                            
+                                            self.link_activity[router_id][out_port] += 1
+                                            self.total_hops += 1
+                                            router.next_input_to_serve[out_port] = (in_port * self.num_vcs + in_vc + 1) % (5 * self.num_vcs)
+                                            moved_in_this_port = True
+                                            break
+                    if moved_in_this_port: break
 
-        # 4. Aplicar transferencias al final del ciclo
-        for d_idx, d_port, flit in transfers:
-            self.routers[d_idx].input_buffers[d_port].append(flit)
+        # 3. Aplicar transferencias y retornos de créditos
+        for d_idx, d_port, d_vc, flit in transfers:
+            self.routers[d_idx].input_buffers[d_port][d_vc].append(flit)
+        
+        for r_idx, port, vc in credit_returns:
+            if r_idx != -1:
+                self.routers[r_idx].credits[port][vc] += 1
 
         self.current_cycle += 1
 
@@ -154,17 +199,23 @@ if __name__ == "__main__":
     trace = load_trace(sys.argv[1])
     trace.sort(key=lambda x: x['timestamp'])
 
-    sim = HighFidelityCycleSimulator(config)
+    # Configuración avanzada (se puede mover al archivo .config)
+    config['NUM_VCS'] = 4  # Aumentamos a 4 VCs para mayor profesionalismo
+    config['BUFFER_SIZE'] = 32 # Buffer total por puerto (8 flits por VC)
+
+    sim = AdvancedNoCSimulator(config)
     event_idx = 0
     
-    print(f"--- Iniciando Simulador de Ciclos de Alta Fidelidad (Integridad Total) ---")
-    print(f"Traza cargada: {len(trace)} eventos.")
+    print(f"--- Iniciando Simulador de Ciclos PROFESIONAL (VCs + Créditos) ---")
+    print(f"Configuración: Malla {config['MESH_DIM_X']}x{config['MESH_DIM_Y']}, VCs: {config['NUM_VCS']}, Buffer/Port: {config['BUFFER_SIZE']}")
     
-    # Simular mientras queden eventos en la traza, en las colas de inyección o en los buffers de los routers
     def is_simulation_active(sim, trace_idx, trace_len):
         if trace_idx < trace_len: return True
         if any(q for q in sim.injection_queues): return True
-        if any(any(b for b in r.input_buffers) for r in sim.routers): return True
+        for r in sim.routers:
+            for p in range(5):
+                for vc in range(sim.num_vcs):
+                    if r.input_buffers[p][vc]: return True
         return False
 
     while is_simulation_active(sim, event_idx, len(trace)):
@@ -178,11 +229,9 @@ if __name__ == "__main__":
         if sim.current_cycle % 10000 == 0 and sim.current_cycle > 0:
             print(f"Ciclo {sim.current_cycle} | Entregados: {sim.completed_count}/{len(trace)} | En red: {sim.injected_count - sim.completed_count}")
 
-        if sim.current_cycle > 10000000: # Límite de seguridad extendido para alta congestión
-            print("AVISO: Límite de ciclos alcanzado.")
-            break
+        if sim.current_cycle > 10000000: break
 
-    print(f"\n--- Resultados de la Simulación (Alta Fidelidad) ---")
+    print(f"\n--- Resultados de la Simulación (Arquitectura Avanzada) ---")
     print(f"Ciclos totales: {sim.current_cycle}")
     print(f"Flits inyectados: {sim.injected_count}")
     print(f"Flits entregados: {sim.completed_count}")

@@ -1,0 +1,21 @@
+--- Iniciando Simulador de Ciclos PROFESIONAL (VCs + Créditos) ---
+Configuración: Malla 4x4, VCs: 4, Buffer/Port: 32
+Ciclo 10000 | Entregados: 37116/411420 | En red: 374304
+Ciclo 20000 | Entregados: 76314/411420 | En red: 335106
+Ciclo 30000 | Entregados: 126307/411420 | En red: 285113
+Ciclo 40000 | Entregados: 169474/411420 | En red: 241946
+Ciclo 50000 | Entregados: 209462/411420 | En red: 201958
+Ciclo 60000 | Entregados: 249460/411420 | En red: 161960
+Ciclo 70000 | Entregados: 289458/411420 | En red: 121962
+Ciclo 80000 | Entregados: 329462/411420 | En red: 81958
+Ciclo 90000 | Entregados: 369455/411420 | En red: 41965
+Ciclo 100000 | Entregados: 404987/411420 | En red: 6433
+
+--- Resultados de la Simulación (Arquitectura Avanzada) ---
+Ciclos totales: 104826
+Flits inyectados: 411420
+Flits entregados: 411420
+Latencia promedio: 49934.45 ciclos
+Jitter (StdDev): 28768.50 ciclos
+Total Hops: 1190989
+Energía Estimada: 1396699.00 unidades
