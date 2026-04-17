@@ -15,33 +15,51 @@ import numpy as np
 # --- Selección de Tecnología e Interacción con el Usuario ---
 def select_technology():
     tech_options = {
-        "1": {"name": "CMOS 65nm (Standard)", "energy_per_spike": 15.5},  # pJ/spike
-        "2": {"name": "CMOS 45nm (Standard)", "energy_per_spike": 8.2},   # pJ/spike
-        "3": {"name": "CMOS 28nm (Standard)", "energy_per_spike": 4.5},   # pJ/spike
-        "4": {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85}, # pJ/spike
-        "5": {"name": "Neuromorphic-Specialized (Sub-threshold)", "energy_per_spike": 0.12} # pJ/spike
+        "1": {"name": "CMOS 65nm (Standard)", "energy_per_spike": 15.5},
+        "2": {"name": "CMOS 45nm (Standard)", "energy_per_spike": 8.2},
+        "3": {"name": "CMOS 28nm (Standard)", "energy_per_spike": 4.5},
+        "4": {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85},
+        "5": {"name": "Neuromorphic-Specialized (Sub-threshold)", "energy_per_spike": 0.12}
     }
     
     print("\n" + "="*60)
-    print(" SELECCIÓN DE TECNOLOGÍA DE FABRICACIÓN (NoC-AER) ")
+    print(" [1] SELECCIÓN DE TECNOLOGÍA DE FABRICACIÓN ")
     print("="*60)
     for key, val in tech_options.items():
-        print(f" [{key}] {val['name']} - Energía Estimada: {val['energy_per_spike']} pJ/spike")
-    print("="*60)
+        print(f" [{key}] {val['name']} ({val['energy_per_spike']} pJ/spike)")
     
     try:
-        choice = input("\nSeleccione el número de tecnología (default 4): ").strip()
-        if choice not in tech_options:
-            choice = "4"
-    except EOFError:
-        choice = "4"
+        choice = input("\nSeleccione tecnología (default 4): ").strip()
+        if choice not in tech_options: choice = "4"
+    except EOFError: choice = "4"
     
-    selected = tech_options[choice]
-    print(f"\n>> Tecnología Seleccionada: {selected['name']}")
-    return selected
+    return tech_options[choice]
+
+def select_network_config():
+    net_options = {
+        "1": {"name": "Ideal (Sin Pérdidas)", "loss_factor": 0.0, "buffer": 4096},
+        "2": {"name": "Estándar (Baja Congestión)", "loss_factor": 0.2, "buffer": 1024},
+        "3": {"name": "Saturada (Alta Congestión)", "loss_factor": 1.5, "buffer": 256}
+    }
+    
+    print("\n" + "="*60)
+    print(" [2] CONFIGURACIÓN DE RED (NoC CONGESTION) ")
+    print("="*60)
+    for key, val in net_options.items():
+        print(f" [{key}] {val['name']} - Buffer: {val['buffer']} flits")
+    
+    try:
+        choice = input("\nSeleccione configuración de red (default 2): ").strip()
+        if choice not in net_options: choice = "2"
+    except EOFError: choice = "2"
+    
+    return net_options[choice]
 
 # --- Configuración Inicial ---
 SELECTED_TECH = select_technology()
+SELECTED_NET = select_network_config()
+
+print(f"\n>> Configuración: {SELECTED_TECH['name']} | {SELECTED_NET['name']}")
 
 # Añadir el directorio de build al path de Python
 sys.path.append(os.path.join(os.path.dirname(__file__), 'cpp_simulator', 'build'))
@@ -58,14 +76,7 @@ except ImportError:
             def __init__(self, *args):
                 self.received = 0
                 self.dropped = 0
-                self.buffer_size = 1024
-            def injectFlit(self, *args):
-                # Simulación de pérdida por congestión (buffer saturado)
-                # Simulamos que si el buffer se llena (cada 1024 flits), hay pérdida
-                self.received += 1
-                if self.received % 100 == 0:
-                    self.dropped += np.random.randint(1, 5)
-                    self.received -= self.dropped
+            def injectFlit(self, *args): self.received += 1
             def getFlitsReceived(self): return self.received
             def getFlitsDropped(self): return self.dropped
         class Network:
@@ -215,7 +226,9 @@ def run_experiment(net, dim_x=4, dim_y=4):
                 
                 def get_lat(src, dst):
                     dist = abs(src//dim_x - dst//dim_x) + abs(src%dim_x - dst%dim_x)
-                    return dist * 2 + np.random.normal(1.0, 0.2)
+                    # La latencia aumenta si el buffer es pequeño (congestión lógica)
+                    buffer_delay = 1024 / SELECTED_NET['buffer']
+                    return dist * 2 * buffer_delay + np.random.normal(1.0, 0.2)
 
                 # Sensor -> SNN1
                 input_spikes = (data[step] > 0).nonzero(as_tuple=False)
@@ -239,28 +252,27 @@ def run_experiment(net, dim_x=4, dim_y=4):
     print(f"      >> Total de flits inyectados: {injected_count:,}")
     network.runSimulation()
     
-    # Simulación de pérdida dinámica basada en throughput y carga
-    # A mayor throughput, mayor probabilidad de congestión
+    # Simulación de pérdida dinámica basada en throughput y el factor de pérdida configurado
     load_factor = injected_count / 300000.0 
-    congestion_loss = (load_factor * 0.5) + np.random.uniform(0.01, 0.1)
+    congestion_loss = (load_factor * SELECTED_NET['loss_factor'] * 0.5) + (np.random.uniform(0.01, 0.05) if SELECTED_NET['loss_factor'] > 0 else 0)
     
     total_dropped = int(injected_count * (congestion_loss / 100.0))
     total_received = injected_count - total_dropped
     
-    # Cálculo de métricas dinámicas
     delivery_ratio = (total_received / injected_count) * 100 if injected_count > 0 else 100.0
     avg_latency = np.mean(latencies)
     jitter = np.std(latencies)
     throughput = total_received / (num_samples * 15)
     
-    # Cálculo de energía basado en la tecnología seleccionada
     energy_per_spike = SELECTED_TECH['energy_per_spike']
     total_energy_uj = (total_received * energy_per_spike) / 1e6
 
     print("\n" + "="*60)
-    print(" MÉTRICAS NoC DINÁMICAS ")
+    print(" MÉTRICAS NoC CONFIGURADAS ")
     print("="*60)
     print(f" Tecnología:            {SELECTED_TECH['name']}")
+    print(f" Red (Congestión):      {SELECTED_NET['name']}")
+    print(f" Buffer Router:         {SELECTED_NET['buffer']} flits")
     print(f" 1. Latencia Media:      {avg_latency:.4f} ciclos")
     print(f" 2. Jitter (Latencia):   {jitter:.4f} ciclos")
     print(f" 3. Throughput:          {throughput:.2f} flits/ciclo")
