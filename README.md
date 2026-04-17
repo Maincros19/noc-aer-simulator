@@ -2,22 +2,17 @@
 
 Este repositorio contiene un simulador de **Red en Chip (NoC)** de alto rendimiento diseñado para el tráfico de **Redes Neuronales Espiking (SNN)** utilizando el protocolo **AER (Address Event Representation)**. 
 
-El sistema integra un flujo completo: desde el **entrenamiento real** de una SNN con el dataset N-MNIST hasta la **simulación de hardware** con métricas de rendimiento detalladas y configurables.
+El sistema integra un flujo completo: desde el **entrenamiento real** de una SNN con el dataset N-MNIST hasta la **simulación de hardware** con métricas de rendimiento detalladas, configurables y en tiempo real.
 
 ---
 
 ## 🚀 Características Principales
 
 - **Entrenamiento Real de SNN:** Implementación de una **Convolutional SNN (CSNN)** utilizando `snntorch`. El modelo se entrena realmente con el dataset N-MNIST antes de la simulación.
-- **Selección de Tecnología Interactiva:** El usuario puede elegir entre diferentes nodos tecnológicos (65nm, 45nm, 28nm) y tecnologías especializadas (**22nm FD-SOI**, **Sub-threshold**) para obtener estimaciones de energía ultra-precisas.
-- **Configuración de Red Personalizable:** Menú interactivo para definir el estado de la NoC:
-  - **Red Ideal:** Sin pérdidas de paquetes y buffers amplios.
-  - **Red Estándar:** Congestión moderada con buffers de 1024 flits.
-  - **Red Saturada:** Alta tasa de pérdida y buffers reducidos (256 flits) para pruebas de estrés.
-- **Métricas de Hardware Dinámicas:** Cálculo en tiempo real de:
-  - **Latencia Media:** Afectada dinámicamente por el tamaño del buffer y la congestión.
-  - **Jitter de Latencia:** Variación temporal de la entrega de eventos.
-  - **Tasa de Entrega (Delivery Ratio):** Calculada según la carga de tráfico y configuración de red.
+- **Selección de Tecnología con Frecuencia Real:** El usuario puede elegir entre diferentes nodos tecnológicos, cada uno con su propia **Frecuencia de Operación (MHz)** y consumo energético.
+- **Conversión a Tiempo Real:** El simulador traduce automáticamente los ciclos de reloj a **nanosegundos (ns)** basándose en la tecnología seleccionada.
+- **Configuración de Red Personalizable:** Menú interactivo para definir el estado de la NoC (Ideal, Estándar, Saturada) y el tamaño de los buffers de los routers.
+- **Métricas de Hardware Dinámicas:** Cálculo en tiempo real de Latencia Media (ciclos/ns), Jitter, Throughput y Tasa de Entrega.
 - **Precisión de IA (Accuracy):** Evaluación de la precisión del modelo entrenado durante el flujo de simulación.
 
 ---
@@ -43,15 +38,15 @@ python3 nmnist_train_sim.py
 
 ---
 
-## 🔋 Modelos de Energía Disponibles
+## 🔋 Modelos de Tecnología y Tiempo
 
-| Tecnología | Tipo | Energía (pJ/spike) |
-| :--- | :--- | :--- |
-| **CMOS 65nm** | Standard | 15.5 |
-| **CMOS 45nm** | Standard | 8.2 |
-| **CMOS 28nm** | Standard | 4.5 |
-| **22nm FD-SOI** | Neuromorphic-Spec | 0.85 |
-| **Sub-threshold** | Neuromorphic-Spec | 0.12 |
+| Tecnología | Frecuencia (MHz) | Periodo (ns) | Energía (pJ/spike) |
+| :--- | :---: | :---: | :---: |
+| **CMOS 65nm** | 400 | 2.50 | 15.5 |
+| **CMOS 45nm** | 600 | 1.67 | 8.2 |
+| **CMOS 28nm** | 1000 | 1.00 | 4.5 |
+| **22nm FD-SOI** | 1200 | 0.83 | 0.85 |
+| **Sub-threshold** | 200 | 5.00 | 0.12 |
 
 ---
 

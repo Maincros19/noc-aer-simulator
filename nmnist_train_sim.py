@@ -15,18 +15,18 @@ import numpy as np
 # --- Selección de Tecnología e Interacción con el Usuario ---
 def select_technology():
     tech_options = {
-        "1": {"name": "CMOS 65nm (Standard)", "energy_per_spike": 15.5},
-        "2": {"name": "CMOS 45nm (Standard)", "energy_per_spike": 8.2},
-        "3": {"name": "CMOS 28nm (Standard)", "energy_per_spike": 4.5},
-        "4": {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85},
-        "5": {"name": "Neuromorphic-Specialized (Sub-threshold)", "energy_per_spike": 0.12}
+        "1": {"name": "CMOS 65nm (Standard)", "energy_per_spike": 15.5, "f_max_mhz": 400},
+        "2": {"name": "CMOS 45nm (Standard)", "energy_per_spike": 8.2, "f_max_mhz": 600},
+        "3": {"name": "CMOS 28nm (Standard)", "energy_per_spike": 4.5, "f_max_mhz": 1000},
+        "4": {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85, "f_max_mhz": 1200},
+        "5": {"name": "Neuromorphic-Specialized (Sub-threshold)", "energy_per_spike": 0.12, "f_max_mhz": 200}
     }
     
     print("\n" + "="*60)
     print(" [1] SELECCIÓN DE TECNOLOGÍA DE FABRICACIÓN ")
     print("="*60)
     for key, val in tech_options.items():
-        print(f" [{key}] {val['name']} ({val['energy_per_spike']} pJ/spike)")
+        print(f" [{key}] {val['name']} ({val['energy_per_spike']} pJ/spike) @ {val['f_max_mhz']} MHz")
     
     try:
         choice = input("\nSeleccione tecnología (default 4): ").strip()
@@ -226,7 +226,6 @@ def run_experiment(net, dim_x=4, dim_y=4):
                 
                 def get_lat(src, dst):
                     dist = abs(src//dim_x - dst//dim_x) + abs(src%dim_x - dst%dim_x)
-                    # La latencia aumenta si el buffer es pequeño (congestión lógica)
                     buffer_delay = 1024 / SELECTED_NET['buffer']
                     return dist * 2 * buffer_delay + np.random.normal(1.0, 0.2)
 
@@ -252,7 +251,7 @@ def run_experiment(net, dim_x=4, dim_y=4):
     print(f"      >> Total de flits inyectados: {injected_count:,}")
     network.runSimulation()
     
-    # Simulación de pérdida dinámica basada en throughput y el factor de pérdida configurado
+    # Simulación de pérdida dinámica
     load_factor = injected_count / 300000.0 
     congestion_loss = (load_factor * SELECTED_NET['loss_factor'] * 0.5) + (np.random.uniform(0.01, 0.05) if SELECTED_NET['loss_factor'] > 0 else 0)
     
@@ -260,21 +259,27 @@ def run_experiment(net, dim_x=4, dim_y=4):
     total_received = injected_count - total_dropped
     
     delivery_ratio = (total_received / injected_count) * 100 if injected_count > 0 else 100.0
-    avg_latency = np.mean(latencies)
-    jitter = np.std(latencies)
-    throughput = total_received / (num_samples * 15)
+    avg_latency_cycles = np.mean(latencies)
+    jitter_cycles = np.std(latencies)
     
+    # --- Conversión a Tiempo Real ---
+    f_mhz = SELECTED_TECH['f_max_mhz']
+    period_ns = 1000.0 / f_mhz # ns por ciclo
+    
+    avg_latency_ns = avg_latency_cycles * period_ns
+    jitter_ns = jitter_cycles * period_ns
+    
+    throughput = total_received / (num_samples * 15)
     energy_per_spike = SELECTED_TECH['energy_per_spike']
     total_energy_uj = (total_received * energy_per_spike) / 1e6
 
     print("\n" + "="*60)
-    print(" MÉTRICAS NoC CONFIGURADAS ")
+    print(" MÉTRICAS NoC CONFIGURADAS (CON TIEMPO REAL) ")
     print("="*60)
-    print(f" Tecnología:            {SELECTED_TECH['name']}")
+    print(f" Tecnología:            {SELECTED_TECH['name']} @ {f_mhz} MHz")
     print(f" Red (Congestión):      {SELECTED_NET['name']}")
-    print(f" Buffer Router:         {SELECTED_NET['buffer']} flits")
-    print(f" 1. Latencia Media:      {avg_latency:.4f} ciclos")
-    print(f" 2. Jitter (Latencia):   {jitter:.4f} ciclos")
+    print(f" 1. Latencia Media:      {avg_latency_cycles:.2f} ciclos ({avg_latency_ns:.2f} ns)")
+    print(f" 2. Jitter (Latencia):   {jitter_cycles:.2f} ciclos ({jitter_ns:.2f} ns)")
     print(f" 3. Throughput:          {throughput:.2f} flits/ciclo")
     print(f" 4. Tasa de Entrega:     {delivery_ratio:.4f}%")
     print(f" 5. Flits Perdidos:      {total_dropped:,}")
