@@ -12,12 +12,43 @@ import os
 import time
 import numpy as np
 
+# --- Selección de Tecnología e Interacción con el Usuario ---
+def select_technology():
+    tech_options = {
+        "1": {"name": "CMOS 65nm (Standard)", "energy_per_spike": 15.5},  # pJ/spike
+        "2": {"name": "CMOS 45nm (Standard)", "energy_per_spike": 8.2},   # pJ/spike
+        "3": {"name": "CMOS 28nm (Standard)", "energy_per_spike": 4.5},   # pJ/spike
+        "4": {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85}, # pJ/spike (Eficiente)
+        "5": {"name": "Neuromorphic-Specialized (Sub-threshold)", "energy_per_spike": 0.12} # pJ/spike (Ultra-bajo consumo)
+    }
+    
+    print("\n" + "="*60)
+    print(" SELECCIÓN DE TECNOLOGÍA DE FABRICACIÓN (NoC-AER) ")
+    print("="*60)
+    for key, val in tech_options.items():
+        print(f" [{key}] {val['name']} - Energía Estimada: {val['energy_per_spike']} pJ/spike")
+    print("="*60)
+    
+    # En entornos no interactivos o si falla el input, usamos una opción por defecto (4)
+    try:
+        choice = input("\nSeleccione el número de tecnología (default 4): ").strip()
+        if choice not in tech_options:
+            choice = "4"
+    except EOFError:
+        choice = "4"
+    
+    selected = tech_options[choice]
+    print(f"\n>> Tecnología Seleccionada: {selected['name']}")
+    return selected
+
+# --- Configuración Inicial ---
+SELECTED_TECH = select_technology()
+
 # Añadir el directorio de build al path de Python
 sys.path.append(os.path.join(os.path.dirname(__file__), 'cpp_simulator', 'build'))
 try:
     import noc_simulator_pybind as ncs
 except ImportError:
-    # Mock mejorado para simular latencias y jitter
     class ncs:
         class FlitType: HEADER = 0; BODY = 1; TAIL = 2
         class Flit: 
@@ -176,10 +207,9 @@ def run_experiment(net, dim_x=4, dim_y=4):
             for step in range(data.size(0)):
                 sim_time = step + (i * 1000)
                 
-                # Simulación de latencia base + saltos en malla (Manhattan distance)
                 def get_lat(src, dst):
                     dist = abs(src//dim_x - dst//dim_x) + abs(src%dim_x - dst%dim_x)
-                    return dist * 2 + np.random.normal(1.0, 0.2) # Base + variabilidad (jitter)
+                    return dist * 2 + np.random.normal(1.0, 0.2)
 
                 # Sensor -> SNN1
                 input_spikes = (data[step] > 0).nonzero(as_tuple=False)
@@ -206,27 +236,27 @@ def run_experiment(net, dim_x=4, dim_y=4):
     # Cálculo de métricas detalladas
     avg_latency = np.mean(latencies)
     jitter = np.std(latencies)
-    throughput = injected_count / (num_samples * 15) # flits/paso_de_tiempo
+    throughput = injected_count / (num_samples * 15)
     delivery_ratio = 99.85 
-    energy_per_spike = 2.0 
+    
+    # Cálculo de energía basado en la tecnología seleccionada
+    energy_per_spike = SELECTED_TECH['energy_per_spike']
     total_energy_uj = (injected_count * energy_per_spike) / 1e6
 
     print("\n" + "="*60)
     print(" MÉTRICAS NoC DETALLADAS ")
     print("="*60)
+    print(f" Tecnología:            {SELECTED_TECH['name']}")
     print(f" 1. Latencia Media:      {avg_latency:.4f} ciclos")
     print(f" 2. Jitter (Latencia):   {jitter:.4f} ciclos")
     print(f" 3. Throughput:          {throughput:.2f} flits/ciclo")
     print(f" 4. Tasa de Entrega:     {delivery_ratio:.2f}%")
     print(f" 5. Energía Total:       {total_energy_uj:.4f} uJ")
-    print(f" 6. Precisión Final IA:  {calculate_accuracy(test_loader, net):.2f}%")
+    print(f" 6. Energía/Spike:       {energy_per_spike:.2f} pJ/spike")
+    print(f" 7. Precisión Final IA:  {calculate_accuracy(test_loader, net):.2f}%")
     print("="*60)
 
 if __name__ == "__main__":
     net = CSNN(beta, spike_grad).to(device)
-    
-    # 1. Entrenamiento Real
     train_model(net, num_epochs=1)
-    
-    # 2. Simulación NoC con Métricas Detalladas
     run_experiment(net, 4, 4)
