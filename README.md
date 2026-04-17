@@ -2,7 +2,7 @@
 
 Este repositorio contiene un simulador de **Red en Chip (NoC)** de alto rendimiento diseñado para el tráfico de **Redes Neuronales Espiking (SNN)** utilizando el protocolo **AER (Address Event Representation)**. 
 
-El sistema integra un flujo completo: desde el **entrenamiento real** de una SNN con el dataset N-MNIST hasta la **simulación de hardware** con métricas de rendimiento detalladas.
+El sistema integra un flujo completo: desde el **entrenamiento real** de una SNN con el dataset N-MNIST hasta la **simulación de hardware** con métricas de rendimiento detalladas y configurables.
 
 ---
 
@@ -10,13 +10,15 @@ El sistema integra un flujo completo: desde el **entrenamiento real** de una SNN
 
 - **Entrenamiento Real de SNN:** Implementación de una **Convolutional SNN (CSNN)** utilizando `snntorch`. El modelo se entrena realmente con el dataset N-MNIST antes de la simulación.
 - **Selección de Tecnología Interactiva:** El usuario puede elegir entre diferentes nodos tecnológicos (65nm, 45nm, 28nm) y tecnologías especializadas (**22nm FD-SOI**, **Sub-threshold**) para obtener estimaciones de energía ultra-precisas.
-- **Métricas de Hardware Detalladas:** Cálculo dinámico de:
-  - **Latencia Media:** Tiempo de tránsito de los spikes en ciclos.
+- **Configuración de Red Personalizable:** Menú interactivo para definir el estado de la NoC:
+  - **Red Ideal:** Sin pérdidas de paquetes y buffers amplios.
+  - **Red Estándar:** Congestión moderada con buffers de 1024 flits.
+  - **Red Saturada:** Alta tasa de pérdida y buffers reducidos (256 flits) para pruebas de estrés.
+- **Métricas de Hardware Dinámicas:** Cálculo en tiempo real de:
+  - **Latencia Media:** Afectada dinámicamente por el tamaño del buffer y la congestión.
   - **Jitter de Latencia:** Variación temporal de la entrega de eventos.
-  - **Throughput:** Capacidad de procesamiento en flits/ciclo.
-  - **Tasa de Entrega Dinámica:** Cálculo de pérdida de paquetes basado en modelos de congestión estocástica.
-- **Precisión de IA (Accuracy):** Evaluación en tiempo real de la precisión del modelo entrenado durante el flujo de simulación.
-- **Núcleo DES en C++:** Motor basado en una cola de prioridad para procesar millones de eventos por segundo.
+  - **Tasa de Entrega (Delivery Ratio):** Calculada según la carga de tráfico y configuración de red.
+- **Precisión de IA (Accuracy):** Evaluación de la precisión del modelo entrenado durante el flujo de simulación.
 
 ---
 
@@ -34,7 +36,7 @@ pip install torch torchvision snntorch tonic pybind11 numpy
 ```
 
 ### 3. Ejecución del Simulador Interactivo
-El script `nmnist_train_sim.py` te guiará a través de la selección de tecnología y el entrenamiento:
+El script `nmnist_train_sim.py` te guiará a través de la selección de tecnología y configuración de red:
 ```bash
 python3 nmnist_train_sim.py
 ```
@@ -53,14 +55,13 @@ python3 nmnist_train_sim.py
 
 ---
 
-## 📊 Ejemplo de Resultados (Malla 4x4)
+## 📊 Configuración de Red y Congestión
 
-Al finalizar la ejecución, el simulador reporta un informe detallado:
-- **Precisión Final IA:** >95% (en N-MNIST)
-- **Latencia Media:** ~6.3 ciclos
-- **Jitter:** ~2.3 ciclos
-- **Tasa de Entrega:** Dinámica según carga (>99%)
-- **Consumo Total:** Calculado en microJulios (uJ)
+| Modo de Red | Buffer (Flits) | Factor de Pérdida | Impacto en Latencia |
+| :--- | :---: | :---: | :--- |
+| **Ideal** | 4096 | 0% | Mínima |
+| **Estándar** | 1024 | Bajo | Moderada |
+| **Saturada** | 256 | Alto | Alta (por reintentos/cola) |
 
 ---
 
