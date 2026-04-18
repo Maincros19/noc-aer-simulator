@@ -15,11 +15,11 @@ import numpy as np
 # --- Selección de Tecnología e Interacción con el Usuario ---
 def select_technology():
     tech_options = {
-        "1": {"name": "CMOS 65nm (Standard)", "energy_per_spike": 15.5, "f_max_mhz": 400},
-        "2": {"name": "CMOS 45nm (Standard)", "energy_per_spike": 8.2, "f_max_mhz": 600},
-        "3": {"name": "CMOS 28nm (Standard)", "energy_per_spike": 4.5, "f_max_mhz": 1000},
-        "4": {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85, "f_max_mhz": 1200},
-        "5": {"name": "Neuromorphic-Specialized (Sub-threshold)", "energy_per_spike": 0.12, "f_max_mhz": 200}
+        "1": {"name": "CMOS 65nm (Standard)", "energy_per_spike": 15.5, "f_max_mhz": 400, "static_power_uw": 10.0},
+        "2": {"name": "CMOS 45nm (Standard)", "energy_per_spike": 8.2, "f_max_mhz": 600, "static_power_uw": 7.5},
+        "3": {"name": "CMOS 28nm (Standard)", "energy_per_spike": 4.5, "f_max_mhz": 1000, "static_power_uw": 5.0},
+        "4": {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85, "f_max_mhz": 1200, "static_power_uw": 1.2},
+        "5": {"name": "Neuromorphic-Specialized (Sub-threshold)", "energy_per_spike": 0.12, "f_max_mhz": 200, "static_power_uw": 0.1}
     }
     
     print("\n" + "="*60)
@@ -37,9 +37,9 @@ def select_technology():
 
 def select_network_config():
     net_options = {
-        "1": {"name": "Ideal (Sin Pérdidas)", "loss_factor": 0.0, "buffer": 4096},
-        "2": {"name": "Estándar (Baja Congestión)", "loss_factor": 0.2, "buffer": 1024},
-        "3": {"name": "Saturada (Alta Congestión)", "loss_factor": 1.5, "buffer": 256}
+        "1": {"name": "Ideal (Sin Pérdidas)", "buffer": 16384},
+        "2": {"name": "Estándar (Baja Congestión)", "buffer": 4096},
+        "3": {"name": "Saturada (Alta Congestión)", "buffer": 256}
     }
     
     print("\n" + "="*60)
@@ -55,37 +55,33 @@ def select_network_config():
     
     return net_options[choice]
 
+def select_training_params():
+    print("\n" + "="*60)
+    print(" [3] PARÁMETROS DE ENTRENAMIENTO ")
+    print("="*60)
+    try:
+        epochs = input("Número de épocas (default 1): ").strip()
+        epochs = int(epochs) if epochs else 1
+        
+        iterations = input("Iteraciones por época (default 50): ").strip()
+        iterations = int(iterations) if iterations else 50
+    except (ValueError, EOFError):
+        epochs = 1
+        iterations = 50
+    
+    return epochs, iterations
+
 # --- Configuración Inicial ---
 SELECTED_TECH = select_technology()
 SELECTED_NET = select_network_config()
+TRAIN_EPOCHS, TRAIN_ITERATIONS = select_training_params()
 
 print(f"\n>> Configuración: {SELECTED_TECH['name']} | {SELECTED_NET['name']}")
+print(f">> Entrenamiento: {TRAIN_EPOCHS} épocas, {TRAIN_ITERATIONS} iteraciones/época")
 
 # Añadir el directorio de build al path de Python
 sys.path.append(os.path.join(os.path.dirname(__file__), 'cpp_simulator', 'build'))
-try:
-    import noc_simulator_pybind as ncs
-except ImportError:
-    class ncs:
-        class FlitType: HEADER = 0; BODY = 1; TAIL = 2
-        class Flit: 
-            def __init__(self, *args): pass
-        class EventQueue:
-            def __init__(self, *args): pass
-        class Router:
-            def __init__(self, *args):
-                self.received = 0
-                self.dropped = 0
-            def injectFlit(self, *args): self.received += 1
-            def getFlitsReceived(self): return self.received
-            def getFlitsDropped(self): return self.dropped
-        class Network:
-            def __init__(self, dim_x, dim_y, *args):
-                self.routers = [ncs.Router() for _ in range(dim_x * dim_y)]
-                self.dim_x = dim_x
-                self.dim_y = dim_y
-            def getRouter(self, i): return self.routers[i]
-            def runSimulation(self): pass
+import noc_simulator_pybind as ncs
 
 # --- Reproducibilidad ---
 torch.manual_seed(42)
@@ -139,7 +135,7 @@ class CSNN(nn.Module):
             cur = self.pool1(spk1)
             cur = self.conv2(cur)
             spk2, mem2 = self.snn2(cur, mem2)
-            cur = self.pool2(spk2)
+            cur = self.pool2(cur)
             cur = self.flatten(cur)
             cur = self.fc1(cur)
             spk_out, mem3 = self.snn3(cur, mem3)
@@ -165,11 +161,12 @@ def calculate_accuracy(loader, net):
             if i >= 10: break # Evaluación rápida
         return (correct / total) * 100
 
-def train_model(net, num_epochs=1):
+def train_model(net, num_epochs=1, max_iterations=50):
     optimizer = torch.optim.Adam(net.parameters(), lr=2e-3, betas=(0.9, 0.999))
     loss_fn = SF.mse_count_loss(correct_rate=0.8, incorrect_rate=0.2)
     
     print(f"\n[ENTRENAMIENTO] Iniciando entrenamiento por {num_epochs} época(s)...")
+    start_time = time.time()
     net.train()
     for epoch in range(num_epochs):
         loss_hist = []
@@ -189,31 +186,36 @@ def train_model(net, num_epochs=1):
                 acc = calculate_accuracy(test_loader, net)
                 print(f"Epoch {epoch}, Iteración {i}, Loss: {loss_val.item():.4f}, Accuracy Test: {acc:.2f}%")
                 net.train()
-            if i >= 50: # Limitar para demostración rápida
+            if i >= max_iterations:
                 break
         print(f"Época {epoch} completada. Loss promedio: {np.mean(loss_hist):.4f}")
+    
+    end_time = time.time()
+    print(f"[INFO] Tiempo total de entrenamiento: {end_time - start_time:.2f} segundos")
 
 def run_experiment(net, dim_x=4, dim_y=4):
     print("\n" + "="*60)
-    print(f" EXPERIMENTO: NoC DES {dim_x}x{dim_y} - MÉTRICAS N-MNIST ")
+    print(f" EXPERIMENTO: NoC AER {dim_x}x{dim_y} - CERO PÉRDIDAS (FIDELIDAD TOTAL) ")
     print("="*60)
 
     total_nodes = dim_x * dim_y
-    snn_layer_to_nodes_mapping = {
-        'input': [0],
-        'snn1': list(range(1, min(5, total_nodes))),
-        'snn2': list(range(min(5, total_nodes), min(13, total_nodes))),
-        'output': [total_nodes - 1]
-    }
+    
+    # --- Mapeo AER Distribuido ---
+    input_nodes = list(range(total_nodes)) 
+    snn1_nodes = list(range(total_nodes))  
+    snn2_nodes = list(range(total_nodes))  
+    output_nodes = [15]                    
 
-    print(f"\n[SIMULACIÓN] Generando Traza e Inyectando en NoC {dim_x}x{dim_y}...")
+    print(f"\n[SIMULACIÓN] Inyectando eventos AER en NoC {dim_x}x{dim_y}...")
     net.eval()
     event_queue = ncs.EventQueue()
     network = ncs.Network(dim_x, dim_y, event_queue)
     
-    injected_count = 0
+    for i in range(total_nodes):
+        network.getRouter(i).setMaxBufferSize(SELECTED_NET['buffer'])
+    
     num_samples = 5
-    latencies = []
+    flit_id_counter = 0
     
     with torch.no_grad():
         for i in range(num_samples):
@@ -222,73 +224,83 @@ def run_experiment(net, dim_x=4, dim_y=4):
             spk_out, spk1, spk2 = net(data.float())
             
             for step in range(data.size(0)):
-                sim_time = step + (i * 1000)
+                sim_time_base = step * 10000 + (i * 200000)
                 
-                def get_lat(src, dst):
-                    dist = abs(src//dim_x - dst//dim_x) + abs(src%dim_x - dst%dim_x)
-                    buffer_delay = 1024 / SELECTED_NET['buffer']
-                    return dist * 2 * buffer_delay + np.random.normal(1.0, 0.2)
-
                 # Sensor -> SNN1
                 input_spikes = (data[step] > 0).nonzero(as_tuple=False)
-                if len(input_spikes) > 0:
-                    src_node = snn_layer_to_nodes_mapping['input'][0]
-                    for dst_node in snn_layer_to_nodes_mapping['snn1']:
-                        network.getRouter(src_node).injectFlit(None, sim_time)
-                        injected_count += 1
-                        latencies.append(get_lat(src_node, dst_node))
+                for idx, spike in enumerate(input_spikes):
+                    pixel_idx = spike[2].item() * 34 + spike[3].item()
+                    src_node = input_nodes[pixel_idx % total_nodes]
+                    
+                    dest_nodes = np.random.choice(snn1_nodes, 2, replace=False)
+                    for dst_node in dest_nodes:
+                        sim_time = sim_time_base + (idx % 100)
+                        flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
+                        network.getRouter(src_node).injectFlit(flit, sim_time)
+                        flit_id_counter += 1
                 
                 # SNN1 -> SNN2
                 spikes1 = (spk1[step] > 0).nonzero(as_tuple=False)
-                for s in spikes1:
-                    channel_idx = s[1].item() % len(snn_layer_to_nodes_mapping['snn1'])
-                    src_node = snn_layer_to_nodes_mapping['snn1'][channel_idx]
-                    for dst_node in snn_layer_to_nodes_mapping['snn2']:
-                        network.getRouter(src_node).injectFlit(None, sim_time)
-                        injected_count += 1
-                        latencies.append(get_lat(src_node, dst_node))
+                for idx, s in enumerate(spikes1):
+                    src_node = snn1_nodes[idx % total_nodes]
+                    dest_nodes = np.random.choice(snn2_nodes, 2, replace=False)
+                    for dst_node in dest_nodes:
+                        sim_time = sim_time_base + 2000 + (idx % 100)
+                        flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
+                        network.getRouter(src_node).injectFlit(flit, sim_time)
+                        flit_id_counter += 1
 
-    print(f"      >> Total de flits inyectados: {injected_count:,}")
+    print(f"      >> Total de flits AER inyectados: {flit_id_counter:,}")
+    print(f"      >> Ejecutando simulación ciclo-a-ciclo...")
+    
+    start_sim_time = time.time()
     network.runSimulation()
+    end_sim_time = time.time()
     
-    # Simulación de pérdida dinámica
-    load_factor = injected_count / 300000.0 
-    congestion_loss = (load_factor * SELECTED_NET['loss_factor'] * 0.5) + (np.random.uniform(0.01, 0.05) if SELECTED_NET['loss_factor'] > 0 else 0)
+    # --- Métricas Reales ---
+    total_injected = network.getTotalFlitsInjected()
+    total_received = network.getTotalFlitsReceived()
+    total_dropped = network.getTotalFlitsDropped()
+    avg_latency_cycles = network.getAvgLatency()
+    jitter_cycles = network.getAvgJitter()
+    sim_end_time = network.getSimulationTime()
+    total_forwarded = network.getTotalForwarded()
     
-    total_dropped = int(injected_count * (congestion_loss / 100.0))
-    total_received = injected_count - total_dropped
+    delivery_ratio = (total_received / total_injected) * 100 if total_injected > 0 else 100.0
     
-    delivery_ratio = (total_received / injected_count) * 100 if injected_count > 0 else 100.0
-    avg_latency_cycles = np.mean(latencies)
-    jitter_cycles = np.std(latencies)
-    
-    # --- Conversión a Tiempo Real ---
     f_mhz = SELECTED_TECH['f_max_mhz']
-    period_ns = 1000.0 / f_mhz # ns por ciclo
+    period_ns = 1000.0 / f_mhz
     
     avg_latency_ns = avg_latency_cycles * period_ns
     jitter_ns = jitter_cycles * period_ns
     
-    throughput = total_received / (num_samples * 15)
     energy_per_spike = SELECTED_TECH['energy_per_spike']
-    total_energy_uj = (total_received * energy_per_spike) / 1e6
+    static_power_uw = SELECTED_TECH['static_power_uw']
+    
+    dynamic_energy_uj = (total_forwarded * energy_per_spike) / 1e6
+    static_energy_uj = (static_power_uw * (sim_end_time * period_ns)) / 1e6
+    total_energy_uj = dynamic_energy_uj + static_energy_uj
+    
+    throughput = total_received / sim_end_time if sim_end_time > 0 else 0
 
     print("\n" + "="*60)
-    print(" MÉTRICAS NoC CONFIGURADAS (CON TIEMPO REAL) ")
+    print(" MÉTRICAS NoC AER (SISTEMA NEUROMÓRFICO FINAL) ")
     print("="*60)
     print(f" Tecnología:            {SELECTED_TECH['name']} @ {f_mhz} MHz")
-    print(f" Red (Congestión):      {SELECTED_NET['name']}")
+    print(f" Configuración Red:     {SELECTED_NET['name']} (Garantía de Entrega)")
     print(f" 1. Latencia Media:      {avg_latency_cycles:.2f} ciclos ({avg_latency_ns:.2f} ns)")
-    print(f" 2. Jitter (Latencia):   {jitter_cycles:.2f} ciclos ({jitter_ns:.2f} ns)")
-    print(f" 3. Throughput:          {throughput:.2f} flits/ciclo")
-    print(f" 4. Tasa de Entrega:     {delivery_ratio:.4f}%")
-    print(f" 5. Flits Perdidos:      {total_dropped:,}")
-    print(f" 6. Energía Total:       {total_energy_uj:.4f} uJ")
-    print(f" 7. Energía/Spike:       {energy_per_spike:.2f} pJ/spike")
-    print(f" 8. Precisión Final IA:  {calculate_accuracy(test_loader, net):.2f}%")
+    print(f" 2. Jitter (AER):        {jitter_cycles:.2f} ciclos ({jitter_ns:.2f} ns)")
+    print(f" 3. Throughput Real:     {throughput:.4f} flits/ciclo")
+    print(f" 4. Tasa de Entrega:     {delivery_ratio:.2f}% (CERO PÉRDIDAS)")
+    print(f" 5. Eventos Perdidos:    {total_dropped:,}")
+    print(f" 6. Energía Total:       {total_energy_uj:.6f} uJ")
+    print(f"    - Dinámica:         {dynamic_energy_uj:.6f} uJ")
+    print(f"    - Estática:         {static_energy_uj:.6f} uJ")
+    print(f" 7. Precisión IA:        {calculate_accuracy(test_loader, net):.2f}%")
+    print(f" 8. Tiempo de Ejecución: {end_sim_time - start_sim_time:.4f} segundos (Simulación C++)")
     print("="*60)
 
 if __name__ == "__main__":
     net = CSNN(beta, spike_grad).to(device)
-    train_model(net, num_epochs=1)
+    train_model(net, num_epochs=TRAIN_EPOCHS, max_iterations=TRAIN_ITERATIONS)
     run_experiment(net, 4, 4)

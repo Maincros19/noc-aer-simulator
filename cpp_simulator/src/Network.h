@@ -15,13 +15,21 @@ public:
     Router* getRouter(int id);
     void runSimulation();
 
+    // Aggregate Metrics
+    uint64_t getTotalFlitsInjected() const;
+    uint64_t getTotalFlitsReceived() const;
+    uint64_t getTotalFlitsDropped() const;
+    double getAvgLatency() const;
+    double getAvgJitter() const;
+    uint64_t getSimulationTime() const;
+    uint64_t getTotalForwarded() const;
+
 private:
     int dim_x;
     int dim_y;
     EventQueue& event_queue;
     std::map<int, Router*> routers;
 
-    // Helper para obtener el ID del router a partir de sus coordenadas
     int getRouterId(int x, int y) const { return y * dim_x + x; }
 };
 

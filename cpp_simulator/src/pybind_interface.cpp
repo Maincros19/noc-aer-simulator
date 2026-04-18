@@ -9,16 +9,35 @@
 namespace py = pybind11;
 
 PYBIND11_MODULE(noc_simulator_pybind, m) {
-    m.doc() = "pybind11 plugin for NoC AER Simulator C++ core"; // optional module docstring
+    m.doc() = "pybind11 plugin for NoC AER Simulator C++ core";
 
     py::enum_<EventType>(m, "EventType")
         .value("FLIT_ARRIVAL", FLIT_ARRIVAL)
         .value("ROUTER_PROCESSING", ROUTER_PROCESSING)
+        .value("LINK_TRANSMISSION", LINK_TRANSMISSION)
         .export_values();
 
+    py::enum_<FlitType>(m, "FlitType")
+        .value("HEADER", HEADER)
+        .value("BODY", BODY)
+        .value("TAIL", TAIL)
+        .export_values();
+
+    py::class_<Flit>(m, "Flit")
+        .def(py::init<uint64_t, uint64_t, FlitType, int, int, int, uint64_t>(),
+             py::arg("id") = -1, py::arg("packet_id") = 0, py::arg("type") = BODY, py::arg("source_router_id") = -1,
+             py::arg("dest_router_id") = -1, py::arg("current_router_id") = -1, py::arg("injection_time") = 0)
+        .def_readwrite("id", &Flit::id)
+        .def_readwrite("packet_id", &Flit::packet_id)
+        .def_readwrite("type", &Flit::type)
+        .def_readwrite("source_router_id", &Flit::source_router_id)
+        .def_readwrite("dest_router_id", &Flit::dest_router_id)
+        .def_readwrite("current_router_id", &Flit::current_router_id)
+        .def_readwrite("injection_time", &Flit::injection_time);
+
     py::class_<Event>(m, "Event")
-        .def(py::init<uint64_t, EventType, int, int>(),
-             py::arg("timestamp"), py::arg("type"), py::arg("source_router_id"), py::arg("dest_router_id"))
+        .def(py::init<uint64_t, EventType, int, int, Flit>(),
+             py::arg("timestamp"), py::arg("type"), py::arg("source_router_id"), py::arg("dest_router_id"), py::arg("flit") = Flit())
         .def_readwrite("timestamp", &Event::timestamp)
         .def_readwrite("type", &Event::type)
         .def_readwrite("source_router_id", &Event::source_router_id)
@@ -31,24 +50,6 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("isEmpty", &EventQueue::isEmpty)
         .def("getCurrentTime", &EventQueue::getCurrentTime);
 
-    py::enum_<FlitType>(m, "FlitType")
-        .value("HEADER", HEADER)
-        .value("BODY", BODY)
-        .value("TAIL", TAIL)
-        .export_values();
-
-    py::class_<Flit>(m, "Flit")
-        .def(py::init<uint64_t, uint64_t, FlitType, int, int, int, uint64_t>(),
-             py::arg("id"), py::arg("packet_id"), py::arg("type"), py::arg("source_router_id"),
-             py::arg("dest_router_id"), py::arg("current_router_id"), py::arg("injection_time"))
-        .def_readwrite("id", &Flit::id)
-        .def_readwrite("packet_id", &Flit::packet_id)
-        .def_readwrite("type", &Flit::type)
-        .def_readwrite("source_router_id", &Flit::source_router_id)
-        .def_readwrite("dest_router_id", &Flit::dest_router_id)
-        .def_readwrite("current_router_id", &Flit::current_router_id)
-        .def_readwrite("injection_time", &Flit::injection_time);
-
     py::enum_<Port>(m, "Port")
         .value("LOCAL", LOCAL)
         .value("NORTH", NORTH)
@@ -59,7 +60,7 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
 
     py::class_<Router>(m, "Router")
         .def(py::init<int, int, int, int, int, EventQueue&>(),
-             py::arg("id"), py::arg("x"), py::arg("y"), py::arg("dim_x"), py::arg("dim_y"), py::arg("event_queue"), py::keep_alive<1, 6>() /* Essential for EventQueue reference */)
+             py::arg("id"), py::arg("x"), py::arg("y"), py::arg("dim_x"), py::arg("dim_y"), py::arg("event_queue"), py::keep_alive<1, 6>())
         .def("receiveFlit", &Router::receiveFlit)
         .def("processFlit", &Router::processFlit)
         .def("injectFlit", &Router::injectFlit)
@@ -68,12 +69,24 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getId", &Router::getId)
         .def("getFlitsDropped", &Router::getFlitsDropped)
         .def("getFlitsReceived", &Router::getFlitsReceived)
-        .def("getAvgLatency", &Router::getAvgLatency);
+        .def("getFlitsInjected", &Router::getFlitsInjected)
+        .def("getFlitsForwarded", &Router::getFlitsForwarded)
+        .def("getAvgLatency", &Router::getAvgLatency)
+        .def("getLatencyJitter", &Router::getLatencyJitter)
+        .def("setMaxBufferSize", &Router::setMaxBufferSize)
+        .def("getMaxBufferSize", &Router::getMaxBufferSize);
 
     py::class_<Network>(m, "Network")
         .def(py::init<int, int, EventQueue&>(),
-             py::arg("dim_x"), py::arg("dim_y"), py::arg("event_queue"), py::keep_alive<1, 4>() /* Essential for EventQueue reference */)
+             py::arg("dim_x"), py::arg("dim_y"), py::arg("event_queue"), py::keep_alive<1, 4>())
         .def("addRouter", &Network::addRouter)
         .def("getRouter", &Network::getRouter, py::return_value_policy::reference)
-        .def("runSimulation", &Network::runSimulation);
+        .def("runSimulation", &Network::runSimulation)
+        .def("getTotalFlitsInjected", &Network::getTotalFlitsInjected)
+        .def("getTotalFlitsReceived", &Network::getTotalFlitsReceived)
+        .def("getTotalFlitsDropped", &Network::getTotalFlitsDropped)
+        .def("getAvgLatency", &Network::getAvgLatency)
+        .def("getAvgJitter", &Network::getAvgJitter)
+        .def("getSimulationTime", &Network::getSimulationTime)
+        .def("getTotalForwarded", &Network::getTotalForwarded);
 }
