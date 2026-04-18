@@ -1,59 +1,89 @@
-# NoC-AER Simulator: Neuromorphic-Optimized Cycle-Accurate Simulation
+# 🧠 NoC-AER Simulator: Simulación Neuromórfica de Alta Precisión 🚀
 
-## Overview
-This repository hosts a Network-on-Chip (NoC) simulator specifically designed for Address Event Representation (AER) based neuromorphic systems. The simulator has been refactored to provide a **cycle-accurate simulation framework** with **zero event loss** and **real fan-out connectivity**, aligning it with the fundamental requirements of spike-based neuromorphic hardware.
+¡Bienvenido al simulador **NoC-AER**! Este proyecto es una herramienta avanzada diseñada para simular cómo se comunican las neuronas artificiales a través de una **Red en Chip (NoC)** utilizando el protocolo **AER (Address Event Representation)**. 
 
-## Key Features
+Hemos transformado este simulador de un modelo matemático simple a un motor de simulación **ciclo-a-ciclo** ultra preciso en C++, garantizando que **no se pierda ni un solo evento (spike)**. 🎯
 
-### 1. Cycle-Accurate C++ Backend
-*   **Physical Fidelity:** All network metrics (latency, jitter, throughput, energy) are calculated cycle-by-cycle within a high-performance C++ engine.
-*   **Zero Event Loss:** Implements an ideal backpressure mechanism where flits are never dropped due to buffer overflows, ensuring 100% delivery ratio for AER events.
-*   **Energy Modeling:** Detailed dynamic and static energy calculations based on real manufacturing technology parameters (CMOS 65nm to 22nm FD-SOI).
+---
 
-### 2. Real AER Fan-out Connectivity
-*   **Architectural Mapping:** Unlike simplified models, this simulator implements a **real fan-out** based on the Spiking Neural Network (SNN) architecture.
-*   **Spike-to-Flit Propagation:**
-    *   **Input -> Conv1:** Each input spike is propagated to all 12 feature maps of the first convolutional layer.
-    *   **Conv1 -> Conv2:** Spikes from the first layer are sent to all 32 feature maps of the second layer.
-    *   **Conv2 -> FC:** Spikes from the second layer are delivered to the 10 output neurons.
-*   **Massive Traffic Generation:** This realistic connectivity generates hundreds of thousands of NoC events from a few thousand spikes, providing a true stress test for the communication infrastructure.
+## ✨ Características Estrella
 
-### 3. Distributed Spatial & Temporal Mapping
-*   **Spatial Distribution:** Neurons and sensors are distributed across the 4x4 mesh to minimize local congestion and maximize parallelism.
-*   **Temporal Scaling:** Implements a realistic AER temporal scaling that preserves the timing relationships of spikes while allowing the NoC sufficient cycles to process the massive event bursts.
+### 1. ⏱️ Simulación Ciclo-a-Ciclo (C++ Core)
+¡Nada de aproximaciones! Cada movimiento de un dato (flit) se calcula ciclo por ciclo de reloj. Esto nos da métricas reales de:
+- **Latencia:** Cuánto tarda un spike en llegar a su destino. ⏳
+- **Jitter:** La variabilidad en el tiempo de llegada (crucial en sistemas AER). 📉
+- **Energía:** Consumo detallado (dinámico y estático) según la tecnología (desde 65nm hasta 22nm). ⚡
 
-## Architecture
+### 2. 🔄 Conectividad "Fan-out" Real
+A diferencia de otros simuladores, aquí la conectividad es **biológicamente fiel** a la red neuronal:
+- **Entrada → Conv1:** 1 spike se convierte en 12 eventos en la red. 🌊
+- **Conv1 → Conv2:** 1 spike se propaga a 32 destinos. 🌊🌊
+- **Conv2 → Salida:** 1 spike llega a las 10 neuronas de clasificación. 🎯
+- **Resultado:** ¡Simulamos ráfagas masivas de más de **750,000 eventos** con total precisión! 💥
 
-*   **Frontend (Python):** Uses `snntorch` and `tonic` for SNN training and AER event generation from the N-MNIST dataset. It manages the mapping and interacts with the backend via `pybind11`.
-*   **Backend (C++):** A discrete-event simulator that manages routers, buffers, XY-routing, and arbitration. It provides precise hardware metrics back to the frontend.
+### 3. 🛡️ Garantía de Cero Pérdidas
+En los sistemas neuromórficos, perder un spike es perder información. Nuestro simulador implementa un sistema de **control de flujo (backpressure)** que asegura una **tasa de entrega del 100%**. 🛑➡️✅
 
-## Experimental Results (100 Iterations, Real Fan-out)
+### 4. 🗺️ Mapeo Inteligente
+Distribuimos las neuronas por toda la "malla" (mesh) de la NoC para evitar atascos y que el tráfico fluya como la seda. 🕸️
 
-| Metric | 1 Epoch | 2 Epochs | 3 Epochs |
+---
+
+## 🏗️ Arquitectura del Sistema
+
+- **Frontend (Python 🐍):** Entrena la red neuronal (SNN) con el dataset N-MNIST y genera los spikes.
+- **Backend (C++ ⚙️):** El motor de alto rendimiento que simula la física de la red.
+- **Puente (PyBind11 🔗):** Conecta ambos mundos para una ejecución rápida y fluida.
+
+---
+
+## 🚀 Guía de Inicio Rápido
+
+### 📋 Requisitos Previos
+Necesitarás tener instalado:
+- Python 3.11+
+- CMake y un compilador de C++ (G++)
+- Librerías: `torch`, `snntorch`, `tonic`, `pybind11`
+
+### 🛠️ Instalación en 2 pasos
+
+1. **Compila el motor C++:**
+   ```bash
+   cd cpp_simulator && mkdir build && cd build
+   cmake ..
+   make
+   ```
+
+2. **¡Lanza la simulación!:**
+   ```bash
+   python3 nmnist_train_sim.py
+   ```
+
+---
+
+## 📊 ¿Qué verás en los resultados?
+
+Al final de cada experimento, el simulador te mostrará un panel detallado con:
+- **Precisión de la IA:** ¿Qué tan bien está clasificando los números? 🤖
+- **Eventos en la NoC:** El volumen total de tráfico gestionado. 📈
+- **Latencia y Jitter:** El rendimiento temporal de tu hardware. ⏱️
+- **Consumo de Energía:** ¡Ideal para optimizar diseños de bajo consumo! 🔋
+- **Tiempo de Ejecución:** Cuánto ha tardado el PC en procesar todo. 💻
+
+---
+
+## 🧪 Experimentos Recientes (Fan-out Real)
+
+| Métrica | 1 Época | 2 Épocas | 3 Épocas |
 | :--- | :---: | :---: | :---: |
-| **IA Accuracy** | 96.88% | 97.16% | 96.88% |
-| **Flits Injected** | 695,132 | 708,448 | 758,356 |
-| **Avg Latency (cycles)** | 5.97 | 5.98 | 5.99 |
-| **Total Energy (uJ)** | 3.00 | 3.05 | 3.19 |
-| **Sim Time (s)** | 9.54 | 9.33 | 9.81 |
+| **Precisión IA** | 96.88% | 97.16% | 96.88% |
+| **Eventos (Flits)** | ~700k | ~710k | ~760k |
+| **Latencia Media** | 5.97 ciclos | 5.98 ciclos | 5.99 ciclos |
+| **Energía Total** | 3.00 uJ | 3.05 uJ | 3.19 uJ |
 
-## Installation & Usage
+---
 
-### Prerequisites
-*   Python 3.11+, CMake, G++, `pybind11`, `torch`, `snntorch`, `tonic`.
+## 📜 Licencia y Contacto
+Este proyecto es ideal para investigadores y entusiastas de la **arquitectura de computadores** y la **IA neuromórfica**. 🎓
 
-### Build & Run
-1.  **Build C++ Core:**
-    ```bash
-    cd cpp_simulator && mkdir build && cd build
-    cmake -Dpybind11_DIR=$(python3.11 -m pybind11 --cmakedir) ..
-    make
-    ```
-2.  **Run Simulation:**
-    ```bash
-    python3 nmnist_train_sim.py
-    ```
-    Follow the interactive menu to select technology, network congestion, and training parameters (epochs/iterations).
-
-## License
-This project is intended for research in neuromorphic hardware and NoC architectures.
+¡Si te gusta el proyecto, no dudes en darle una ⭐️ en GitHub! 🌟
