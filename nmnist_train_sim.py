@@ -195,12 +195,13 @@ def train_model(net, num_epochs=1, max_iterations=50):
 
 def run_experiment(net, dim_x=4, dim_y=4):
     print("\n" + "="*60)
-    print(f" EXPERIMENTO: NoC AER {dim_x}x{dim_y} - CERO PÉRDIDAS (FIDELIDAD TOTAL) ")
+    print(f" EXPERIMENTO: NoC AER {dim_x}x{dim_y} - FAN-OUT REAL (ARQUITECTURA SNN) ")
     print("="*60)
 
     total_nodes = dim_x * dim_y
     
     # --- Mapeo AER Distribuido ---
+    # Mapeamos las capas a diferentes regiones de la NoC
     input_nodes = list(range(total_nodes)) 
     snn1_nodes = list(range(total_nodes))  
     snn2_nodes = list(range(total_nodes))  
@@ -214,9 +215,18 @@ def run_experiment(net, dim_x=4, dim_y=4):
     for i in range(total_nodes):
         network.getRouter(i).setMaxBufferSize(SELECTED_NET['buffer'])
     
-    num_samples = 5
+    num_samples = 5 # Mantenemos 5 para que no sea excesivamente lento con fan-out real
     flit_id_counter = 0
+    total_spikes_generated = 0
     
+    # Fan-out real basado en la arquitectura:
+    # Conv1: 12 filtros de 5x5
+    # Conv2: 32 filtros de 5x5
+    # FC1: 10 neuronas de salida
+    FAN_OUT_CONV1 = 12
+    FAN_OUT_CONV2 = 32
+    FAN_OUT_FC = 10
+
     with torch.no_grad():
         for i in range(num_samples):
             data, label = testset[i]
@@ -226,31 +236,47 @@ def run_experiment(net, dim_x=4, dim_y=4):
             for step in range(data.size(0)):
                 sim_time_base = step * 10000 + (i * 200000)
                 
-                # Sensor -> SNN1
+                # Sensor -> SNN1 (Fan-out real a los 12 mapas de Conv1)
                 input_spikes = (data[step] > 0).nonzero(as_tuple=False)
+                total_spikes_generated += len(input_spikes)
                 for idx, spike in enumerate(input_spikes):
                     pixel_idx = spike[2].item() * 34 + spike[3].item()
                     src_node = input_nodes[pixel_idx % total_nodes]
                     
-                    dest_nodes = np.random.choice(snn1_nodes, 2, replace=False)
+                    # Cada spike de entrada se propaga a las neuronas correspondientes en los 12 mapas
+                    dest_nodes = [snn1_nodes[j % total_nodes] for j in range(FAN_OUT_CONV1)]
                     for dst_node in dest_nodes:
                         sim_time = sim_time_base + (idx % 100)
                         flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
                         network.getRouter(src_node).injectFlit(flit, sim_time)
                         flit_id_counter += 1
                 
-                # SNN1 -> SNN2
+                # SNN1 -> SNN2 (Fan-out real a los 32 mapas de Conv2)
                 spikes1 = (spk1[step] > 0).nonzero(as_tuple=False)
+                total_spikes_generated += len(spikes1)
                 for idx, s in enumerate(spikes1):
                     src_node = snn1_nodes[idx % total_nodes]
-                    dest_nodes = np.random.choice(snn2_nodes, 2, replace=False)
+                    dest_nodes = [snn2_nodes[j % total_nodes] for j in range(FAN_OUT_CONV2)]
                     for dst_node in dest_nodes:
                         sim_time = sim_time_base + 2000 + (idx % 100)
                         flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
                         network.getRouter(src_node).injectFlit(flit, sim_time)
                         flit_id_counter += 1
+                
+                # SNN2 -> FC (Fan-out real a las 10 neuronas de salida)
+                spikes2 = (spk2[step] > 0).nonzero(as_tuple=False)
+                total_spikes_generated += len(spikes2)
+                for idx, s in enumerate(spikes2):
+                    src_node = snn2_nodes[idx % total_nodes]
+                    dest_nodes = [output_nodes[0]] * FAN_OUT_FC # Todas a la capa de salida
+                    for dst_node in dest_nodes:
+                        sim_time = sim_time_base + 4000 + (idx % 100)
+                        flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
+                        network.getRouter(src_node).injectFlit(flit, sim_time)
+                        flit_id_counter += 1
 
-    print(f"      >> Total de flits AER inyectados: {flit_id_counter:,}")
+    print(f"      >> Total de Spikes generados (SNN): {total_spikes_generated:,}")
+    print(f"      >> Total de Flits inyectados (NoC): {flit_id_counter:,} (FAN-OUT REAL APLICADO)")
     print(f"      >> Ejecutando simulación ciclo-a-ciclo...")
     
     start_sim_time = time.time()
