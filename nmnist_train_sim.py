@@ -188,7 +188,7 @@ def train_model(net, num_epochs=1):
             if i % 10 == 0:
                 acc = calculate_accuracy(test_loader, net)
                 print(f"Epoch {epoch}, Iteración {i}, Loss: {loss_val.item():.4f}, Accuracy Test: {acc:.2f}%")
-                net.tran()
+                net.train()
             if i >= 50: # Limitar para demostración rápida
                 break
         print(f"Época {epoch} completada. Loss promedio: {np.mean(loss_hist):.4f}")
