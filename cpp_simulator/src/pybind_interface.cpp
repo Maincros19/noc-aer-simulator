@@ -11,10 +11,19 @@ namespace py = pybind11;
 PYBIND11_MODULE(noc_simulator_pybind, m) {
     m.doc() = "pybind11 plugin for NoC AER Simulator C++ core";
 
+    py::enum_<Port>(m, "Port")
+        .value("LOCAL", LOCAL)
+        .value("NORTH", NORTH)
+        .value("EAST", EAST)
+        .value("SOUTH", SOUTH)
+        .value("WEST", WEST)
+        .export_values();
+
     py::enum_<EventType>(m, "EventType")
         .value("FLIT_ARRIVAL", FLIT_ARRIVAL)
         .value("ROUTER_PROCESSING", ROUTER_PROCESSING)
         .value("LINK_TRANSMISSION", LINK_TRANSMISSION)
+        .value("CREDIT_ARRIVAL", CREDIT_ARRIVAL)
         .export_values();
 
     py::enum_<FlitType>(m, "FlitType")
@@ -36,8 +45,8 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def_readwrite("injection_time", &Flit::injection_time);
 
     py::class_<Event>(m, "Event")
-        .def(py::init<uint64_t, EventType, int, int, Flit>(),
-             py::arg("timestamp"), py::arg("type"), py::arg("source_router_id"), py::arg("dest_router_id"), py::arg("flit") = Flit())
+        .def(py::init<uint64_t, EventType, int, int, Flit, Port>(),
+             py::arg("timestamp"), py::arg("type"), py::arg("source_router_id"), py::arg("dest_router_id"), py::arg("flit") = Flit(), py::arg("port") = LOCAL)
         .def_readwrite("timestamp", &Event::timestamp)
         .def_readwrite("type", &Event::type)
         .def_readwrite("source_router_id", &Event::source_router_id)
@@ -49,14 +58,6 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getNextEvent", &EventQueue::getNextEvent)
         .def("isEmpty", &EventQueue::isEmpty)
         .def("getCurrentTime", &EventQueue::getCurrentTime);
-
-    py::enum_<Port>(m, "Port")
-        .value("LOCAL", LOCAL)
-        .value("NORTH", NORTH)
-        .value("EAST", EAST)
-        .value("SOUTH", SOUTH)
-        .value("WEST", WEST)
-        .export_values();
 
     py::class_<Router>(m, "Router")
         .def(py::init<int, int, int, int, int, EventQueue&>(),

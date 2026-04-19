@@ -53,6 +53,9 @@ void Network::runSimulation() {
                 router->receiveFlit(event.flit, in_port, current_time); 
             } else if (event.type == ROUTER_PROCESSING) {
                 router->processFlit(current_time);
+            } else if (event.type == CREDIT_ARRIVAL) {
+                router->receiveCredit(event.port);
+                event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, router->getId(), router->getId()));
             }
         }
     }
@@ -77,18 +80,18 @@ uint64_t Network::getTotalFlitsDropped() const {
 }
 
 double Network::getAvgLatency() const {
-    uint64_t total_lat_sum = 0;
+    double total_lat_sum = 0;
     uint64_t total_rec = 0;
     for (auto const& [id, router] : routers) {
         total_lat_sum += router->getTotalLatency();
         total_rec += router->getFlitsReceived();
     }
-    return total_rec > 0 ? (double)total_lat_sum / total_rec : 0;
+    return total_rec > 0 ? total_lat_sum / total_rec : 0;
 }
 
 double Network::getAvgJitter() const {
-    uint64_t global_latency_sum = 0;
-    uint64_t global_latency_sq_sum = 0;
+    double global_latency_sum = 0;
+    double global_latency_sq_sum = 0;
     uint64_t global_received = 0;
 
     for (auto const& [id, router] : routers) {

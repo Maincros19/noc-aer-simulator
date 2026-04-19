@@ -7,15 +7,7 @@
 #include <cmath>
 #include "Flit.h"
 #include "EventQueue.h"
-
-enum Port {
-    LOCAL,
-    NORTH,
-    SOUTH,
-    EAST,
-    WEST,
-    NUM_PORTS
-};
+#include "Port.h"
 
 class Router {
 public:
@@ -24,6 +16,7 @@ public:
     void receiveFlit(Flit flit, Port in_port, uint64_t current_time);
     void processFlit(uint64_t current_time);
     void injectFlit(Flit flit, uint64_t current_time);
+    void receiveCredit(Port out_port);
 
     int getX() const { return x_coord; }
     int getY() const { return y_coord; }
@@ -32,8 +25,8 @@ public:
     uint64_t getFlitsReceived() const { return flits_received; }
     uint64_t getFlitsInjected() const { return flits_injected; }
     uint64_t getFlitsForwarded() const { return flits_forwarded; }
-    uint64_t getTotalLatency() const { return total_latency; }
-    uint64_t getTotalLatencySq() const { return total_latency_sq; }
+    double getTotalLatency() const { return total_latency; }
+    double getTotalLatencySq() const { return total_latency_sq; }
     
     double getAvgLatency() const { return flits_received > 0 ? (double)total_latency / flits_received : 0; }
     double getLatencyJitter() const { 
@@ -57,6 +50,7 @@ private:
 
     // Buffers de entrada para cada puerto
     std::map<Port, std::queue<Flit>> input_buffers;
+    std::map<Port, int> downstream_credits;
     Port last_arbitrated_port; // Para arbitraje Round Robin
 
     // Métricas de congestión y rendimiento
@@ -64,8 +58,8 @@ private:
     uint64_t flits_received;  // Contador de flits que llegaron a su destino (LOCAL)
     uint64_t flits_injected;  // Contador de flits inyectados localmente
     uint64_t flits_forwarded; // Contador de flits procesados (para energía dinámica)
-    uint64_t total_latency;   // Suma de latencias
-    uint64_t total_latency_sq; // Suma de latencias al cuadrado (para jitter)
+    double total_latency;   // Suma de latencias
+    double total_latency_sq; // Suma de latencias al cuadrado (para jitter)
 
     // Lógica de ruteo
     Port routeFlit(const Flit& flit);
