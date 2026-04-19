@@ -18,7 +18,7 @@ locale.setlocale(locale.LC_ALL, "")
 sys.path.append(os.path.join(os.path.dirname(__file__), 'cpp_simulator', 'build'))
 import noc_simulator_pybind as ncs
 
-# --- Configuration ---
+# --- Configuration (Matched with train_sim defaults) ---
 TECH = {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85, "f_max_mhz": 1200, "static_power_uw": 1.2}
 NET_CONFIG = {"name": "Estándar (Baja Congestión)", "buffer": 4096}
 TRAIN_EPOCHS = 1
@@ -71,14 +71,12 @@ def safe_addstr(stdscr, y, x, text, attr=0):
     height, width = stdscr.getmaxyx()
     if y < height and x < width:
         try:
-            # Truncate text if it's too long for the window
-            # We use width-x-1 to avoid writing to the last column which can cause errors
             stdscr.addstr(y, x, text[:width-x-1], attr)
         except curses.error:
             pass
 
 def draw_dashboard(stdscr, phase, progress, metrics=None):
-    stdscr.clear() # Use clear to ensure the screen is fully redrawn and avoid artifacts
+    stdscr.clear()
     height, width = stdscr.getmaxyx()
     
     if height < 22 or width < 60:
@@ -130,7 +128,6 @@ def main(stdscr):
             curses.init_pair(1, curses.COLOR_CYAN, -1)
             curses.init_pair(2, curses.COLOR_GREEN, -1)
         except curses.error:
-            # Silently ignore color initialization errors
             pass
     curses.curs_set(0)
     stdscr.nodelay(True)
@@ -138,6 +135,7 @@ def main(stdscr):
     # --- Phase 1: Training ---
     draw_dashboard(stdscr, "Entrenando Modelo SNN...", 0.1)
     net = CSNN(beta, spike_grad).to(device)
+    # Simulate training progress for TUI
     for i in range(11):
         draw_dashboard(stdscr, "Entrenando Modelo SNN...", 0.1 + (i * 0.04))
         time.sleep(0.05)
@@ -155,6 +153,16 @@ def main(stdscr):
     flit_id_counter = 0
     total_spikes = 0
     
+    # Distributed AER Mapping (Identical to train_sim)
+    input_nodes = list(range(0, 4))
+    snn1_nodes = list(range(4, 8))
+    snn2_nodes = list(range(8, 12))
+    output_nodes = list(range(12, 16))
+    
+    FAN_OUT_CONV1 = 12
+    FAN_OUT_CONV2 = 32
+    FAN_OUT_FC = 10
+    
     # Injection
     for i in range(NUM_SAMPLES):
         data, label = testset[i]
@@ -163,37 +171,59 @@ def main(stdscr):
         
         for step in range(data.size(0)):
             sim_time_base = step * 100 + (i * 2000)
+            
+            # Sensor -> SNN1
             input_spikes = (data[step] > 0).nonzero(as_tuple=False)
             total_spikes += len(input_spikes)
             for idx, spike in enumerate(input_spikes):
-                src = (spike[2].item() * 34 + spike[3].item()) % 4
-                for dst in range(4, 8):
+                pixel_idx = spike[2].item() * 34 + spike[3].item()
+                src_node = input_nodes[pixel_idx % len(input_nodes)]
+                dest_nodes = [snn1_nodes[j % len(snn1_nodes)] for j in range(FAN_OUT_CONV1)]
+                for dst_node in dest_nodes:
                     sim_time = sim_time_base + (idx % 10)
-                    flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src, dst, src, sim_time)
-                    network.getRouter(src).injectFlit(flit, sim_time)
+                    flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
+                    network.getRouter(src_node).injectFlit(flit, sim_time)
                     flit_id_counter += 1
+            
+            # SNN1 -> SNN2
             spikes1 = (spk1[step] > 0).nonzero(as_tuple=False)
             total_spikes += len(spikes1)
             for idx, s in enumerate(spikes1):
-                src = 4 + (idx % 4)
-                for dst in range(8, 12):
+                src_node = snn1_nodes[idx % len(snn1_nodes)]
+                dest_nodes = [snn2_nodes[j % len(snn2_nodes)] for j in range(FAN_OUT_CONV2)]
+                for dst_node in dest_nodes:
                     sim_time = sim_time_base + 20 + (idx % 10)
-                    flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src, dst, src, sim_time)
-                    network.getRouter(src).injectFlit(flit, sim_time)
+                    flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
+                    network.getRouter(src_node).injectFlit(flit, sim_time)
+                    flit_id_counter += 1
+            
+            # SNN2 -> FC
+            spikes2 = (spk2[step] > 0).nonzero(as_tuple=False)
+            total_spikes += len(spikes2)
+            for idx, s in enumerate(spikes2):
+                src_node = snn2_nodes[idx % len(snn2_nodes)]
+                dest_nodes = [output_nodes[j % len(output_nodes)] for j in range(FAN_OUT_FC)]
+                for dst_node in dest_nodes:
+                    sim_time = sim_time_base + 40 + (idx % 10)
+                    flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
+                    network.getRouter(src_node).injectFlit(flit, sim_time)
                     flit_id_counter += 1
     
     draw_dashboard(stdscr, "Ejecutando Simulacion Ciclo-a-Ciclo...", 0.8)
     network.runSimulation()
     
     # --- Final Metrics ---
-    sim_time = network.getSimulationTime()
+    sim_time_cycles = network.getSimulationTime()
+    total_forwarded = network.getTotalForwarded()
+    period_ns = 1000.0 / TECH['f_max_mhz']
+    
     metrics = {
         "spikes": total_spikes,
         "flits": flit_id_counter,
         "latency": network.getAvgLatency(),
         "jitter": network.getAvgJitter(),
-        "throughput": (network.getTotalFlitsReceived() / sim_time) / 16 if sim_time > 0 else 0,
-        "energy": (network.getTotalForwarded() * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_time * (1000.0/TECH['f_max_mhz']))) / 1e6,
+        "throughput": (network.getTotalFlitsReceived() / sim_time_cycles) / 16 if sim_time_cycles > 0 else 0,
+        "energy": (total_forwarded * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_time_cycles * period_ns)) / 1e6,
         "accuracy": 67.33
     }
     
