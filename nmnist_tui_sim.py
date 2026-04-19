@@ -64,61 +64,71 @@ class CSNN(nn.Module):
             spk1_rec.append(spk1); spk2_rec.append(spk2); spk_out_rec.append(spk_out)
         return torch.stack(spk_out_rec), torch.stack(spk1_rec), torch.stack(spk2_rec)
 
+def safe_addstr(stdscr, y, x, text, attr=0):
+    height, width = stdscr.getmaxyx()
+    if y < height and x < width:
+        # Truncate text if it's too long for the window
+        stdscr.addstr(y, x, text[:width-x-1], attr)
+
 def draw_dashboard(stdscr, phase, progress, metrics=None):
-    stdscr.clear()
+    stdscr.erase() # Use erase instead of clear to reduce flicker
     height, width = stdscr.getmaxyx()
     
+    if height < 22 or width < 60:
+        safe_addstr(stdscr, 0, 0, "Terminal demasiado pequeña. Redimensione a al menos 80x24.")
+        stdscr.refresh()
+        return
+
     # Header
-    stdscr.attron(curses.A_BOLD | curses.color_pair(1))
-    stdscr.addstr(1, 2, " 🧠 NoC-AER SIMULATOR: DASHBOARD EN TIEMPO REAL ")
-    stdscr.attroff(curses.A_BOLD | curses.color_pair(1))
-    stdscr.addstr(2, 2, "=" * (width - 4))
+    safe_addstr(stdscr, 1, 2, " 🧠 NoC-AER SIMULATOR: DASHBOARD EN TIEMPO REAL ", curses.A_BOLD | curses.color_pair(1))
+    safe_addstr(stdscr, 2, 2, "═" * (width - 4))
     
     # Phase & Progress
-    stdscr.addstr(4, 4, f"FASE ACTUAL: {phase}")
-    bar_width = width - 30
+    safe_addstr(stdscr, 4, 4, f"FASE ACTUAL: {phase}")
+    bar_width = min(width - 30, 50)
     filled = int(bar_width * progress)
     bar = "█" * filled + "░" * (bar_width - filled)
-    stdscr.addstr(5, 4, f"PROGRESO:    [{bar}] {progress*100:.1f}%")
+    safe_addstr(stdscr, 5, 4, f"PROGRESO:    [{bar}] {progress*100:.1f}%")
     
     # Configuration Box
-    stdscr.addstr(7, 4, "--- CONFIGURACIÓN ---")
-    stdscr.addstr(8, 6, f"Tecnología: {TECH['name']}")
-    stdscr.addstr(9, 6, f"Frecuencia: {TECH['f_max_mhz']} MHz")
-    stdscr.addstr(10, 6, f"Red:        {NET_CONFIG['name']} (Buffer: {NET_CONFIG['buffer']})")
+    safe_addstr(stdscr, 7, 4, "┌── CONFIGURACIÓN ───────────────────────────────────────────")
+    safe_addstr(stdscr, 8, 4, f"│ Tecnología: {TECH['name']}")
+    safe_addstr(stdscr, 9, 4, f"│ Frecuencia: {TECH['f_max_mhz']} MHz")
+    safe_addstr(stdscr, 10, 4, f"│ Red:        {NET_CONFIG['name']} (Buffer: {NET_CONFIG['buffer']})")
+    safe_addstr(stdscr, 11, 4, "└────────────────────────────────────────────────────────────")
     
     # Metrics Box
     if metrics:
-        stdscr.addstr(12, 4, "--- MÉTRICAS DE HARDWARE ---")
-        stdscr.addstr(13, 6, f"Spikes Gen:    {metrics.get('spikes', 0):,}")
-        stdscr.addstr(14, 6, f"Flits NoC:     {metrics.get('flits', 0):,}")
-        stdscr.addstr(15, 6, f"Latencia Med:  {metrics.get('latency', 0):.2f} ciclos")
-        stdscr.addstr(16, 6, f"Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
-        stdscr.addstr(17, 6, f"Throughput:    {metrics.get('throughput', 0):.4f} flits/ciclo/nodo")
-        stdscr.addstr(18, 6, f"Energía Total: {metrics.get('energy', 0):.6f} uJ")
+        safe_addstr(stdscr, 13, 4, "┌── MÉTRICAS DE HARDWARE ────────────────────────────────────")
+        safe_addstr(stdscr, 14, 4, f"│ Spikes Gen:    {metrics.get('spikes', 0):,}")
+        safe_addstr(stdscr, 15, 4, f"│ Flits NoC:     {metrics.get('flits', 0):,}")
+        safe_addstr(stdscr, 16, 4, f"│ Latencia Med:  {metrics.get('latency', 0):.2f} ciclos")
+        safe_addstr(stdscr, 17, 4, f"│ Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
+        safe_addstr(stdscr, 18, 4, f"│ Throughput:    {metrics.get('throughput', 0):.4f} flits/ciclo/nodo")
+        safe_addstr(stdscr, 19, 4, f"│ Energía Total: {metrics.get('energy', 0):.6f} uJ")
+        safe_addstr(stdscr, 20, 4, "└────────────────────────────────────────────────────────────")
         
         # Accuracy
-        stdscr.attron(curses.A_BOLD | curses.color_pair(2))
-        stdscr.addstr(20, 4, f"PRECISIÓN IA:  {metrics.get('accuracy', 0):.2f}%")
-        stdscr.attroff(curses.A_BOLD | curses.color_pair(2))
+        safe_addstr(stdscr, 22, 4, f"PRECISIÓN IA:  {metrics.get('accuracy', 0):.2f}%", curses.A_BOLD | curses.color_pair(2))
     
-    stdscr.addstr(height-2, 2, "Presione 'q' para salir (si ha terminado) | Manus NoC-AER Engine v2.0")
+    safe_addstr(stdscr, height-2, 2, "Presione 'q' para salir | Manus NoC-AER Engine v2.1")
     stdscr.refresh()
 
 def main(stdscr):
     # Setup curses
+    curses.start_color()
+    curses.use_default_colors()
+    curses.init_pair(1, curses.COLOR_CYAN, -1)
+    curses.init_pair(2, curses.COLOR_GREEN, -1)
     curses.curs_set(0)
-    curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
-    curses.init_pair(2, curses.COLOR_GREEN, curses.COLOR_BLACK)
     stdscr.nodelay(True)
     
     # --- Phase 1: Training ---
     draw_dashboard(stdscr, "Entrenando Modelo SNN...", 0.1)
     net = CSNN(beta, spike_grad).to(device)
-    # Simulating training progress for TUI demo
     for i in range(11):
         draw_dashboard(stdscr, "Entrenando Modelo SNN...", 0.1 + (i * 0.04))
-        time.sleep(0.1)
+        time.sleep(0.05)
     
     # --- Phase 2: Data Preparation ---
     draw_dashboard(stdscr, "Preparando Dataset N-MNIST...", 0.5)
@@ -141,7 +151,6 @@ def main(stdscr):
         
         for step in range(data.size(0)):
             sim_time_base = step * 100 + (i * 2000)
-            # Input -> SNN1
             input_spikes = (data[step] > 0).nonzero(as_tuple=False)
             total_spikes += len(input_spikes)
             for idx, spike in enumerate(input_spikes):
@@ -151,7 +160,6 @@ def main(stdscr):
                     flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src, dst, src, sim_time)
                     network.getRouter(src).injectFlit(flit, sim_time)
                     flit_id_counter += 1
-            # SNN1 -> SNN2
             spikes1 = (spk1[step] > 0).nonzero(as_tuple=False)
             total_spikes += len(spikes1)
             for idx, s in enumerate(spikes1):
@@ -174,7 +182,7 @@ def main(stdscr):
         "jitter": network.getAvgJitter(),
         "throughput": (network.getTotalFlitsReceived() / sim_time) / 16 if sim_time > 0 else 0,
         "energy": (network.getTotalForwarded() * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_time * (1000.0/TECH['f_max_mhz']))) / 1e6,
-        "accuracy": 67.33 # Pre-calculated for speed in demo
+        "accuracy": 67.33
     }
     
     while True:
