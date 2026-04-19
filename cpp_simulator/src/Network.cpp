@@ -87,15 +87,22 @@ double Network::getAvgLatency() const {
 }
 
 double Network::getAvgJitter() const {
-    double total_jitter = 0;
-    int count = 0;
+    uint64_t global_latency_sum = 0;
+    uint64_t global_latency_sq_sum = 0;
+    uint64_t global_received = 0;
+
     for (auto const& [id, router] : routers) {
-        if (router->getFlitsReceived() > 0) {
-            total_jitter += router->getLatencyJitter();
-            count++;
-        }
+        global_latency_sum += router->getTotalLatency();
+        global_latency_sq_sum += router->getTotalLatencySq(); 
+        global_received += router->getFlitsReceived();
     }
-    return count > 0 ? total_jitter / (double)count : 0;
+
+    if (global_received < 2) return 0.0;
+
+    double global_avg = (double)global_latency_sum / global_received;
+    double variance = ((double)global_latency_sq_sum / global_received) - (global_avg * global_avg);
+    
+    return std::sqrt(std::max(0.0, variance));
 }
 
 uint64_t Network::getSimulationTime() const {

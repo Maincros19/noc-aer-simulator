@@ -33,6 +33,7 @@ public:
     uint64_t getFlitsInjected() const { return flits_injected; }
     uint64_t getFlitsForwarded() const { return flits_forwarded; }
     uint64_t getTotalLatency() const { return total_latency; }
+    uint64_t getTotalLatencySq() const { return total_latency_sq; }
     
     double getAvgLatency() const { return flits_received > 0 ? (double)total_latency / flits_received : 0; }
     double getLatencyJitter() const { 
