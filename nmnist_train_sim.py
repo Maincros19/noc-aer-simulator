@@ -201,10 +201,11 @@ def run_experiment(net, dim_x=4, dim_y=4):
     total_nodes = dim_x * dim_y
     
     # --- Mapeo AER Distribuido ---
-    input_nodes = list(range(total_nodes)) 
-    snn1_nodes = list(range(total_nodes))  
-    snn2_nodes = list(range(total_nodes))  
-    output_nodes = [15]                    
+    # Distribución de capas por regiones del NoC para evitar que todo colapse en el nodo 0 o 15
+    input_nodes = list(range(0, 4))   # Fila superior
+    snn1_nodes = list(range(4, 8))    # Segunda fila
+    snn2_nodes = list(range(8, 12))   # Tercera fila
+    output_nodes = list(range(12, 16)) # Fila inferior
 
     print(f"\n[SIMULACIÓN] Inyectando eventos AER en NoC {dim_x}x{dim_y}...")
     net.eval()
@@ -237,8 +238,8 @@ def run_experiment(net, dim_x=4, dim_y=4):
                 total_spikes_generated += len(input_spikes)
                 for idx, spike in enumerate(input_spikes):
                     pixel_idx = spike[2].item() * 34 + spike[3].item()
-                    src_node = input_nodes[pixel_idx % total_nodes]
-                    dest_nodes = [snn1_nodes[j % total_nodes] for j in range(FAN_OUT_CONV1)]
+                    src_node = input_nodes[pixel_idx % len(input_nodes)]
+                    dest_nodes = [snn1_nodes[j % len(snn1_nodes)] for j in range(FAN_OUT_CONV1)]
                     for dst_node in dest_nodes:
                         sim_time = sim_time_base + (idx % 10) # Reducido de %100 a %10
                         flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
@@ -249,8 +250,8 @@ def run_experiment(net, dim_x=4, dim_y=4):
                 spikes1 = (spk1[step] > 0).nonzero(as_tuple=False)
                 total_spikes_generated += len(spikes1)
                 for idx, s in enumerate(spikes1):
-                    src_node = snn1_nodes[idx % total_nodes]
-                    dest_nodes = [snn2_nodes[j % total_nodes] for j in range(FAN_OUT_CONV2)]
+                    src_node = snn1_nodes[idx % len(snn1_nodes)]
+                    dest_nodes = [snn2_nodes[j % len(snn2_nodes)] for j in range(FAN_OUT_CONV2)]
                     for dst_node in dest_nodes:
                         sim_time = sim_time_base + 20 + (idx % 10) # Reducido de 2000 a 20
                         flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
@@ -261,8 +262,8 @@ def run_experiment(net, dim_x=4, dim_y=4):
                 spikes2 = (spk2[step] > 0).nonzero(as_tuple=False)
                 total_spikes_generated += len(spikes2)
                 for idx, s in enumerate(spikes2):
-                    src_node = snn2_nodes[idx % total_nodes]
-                    dest_nodes = [output_nodes[0]] * FAN_OUT_FC
+                    src_node = snn2_nodes[idx % len(snn2_nodes)]
+                    dest_nodes = [output_nodes[j % len(output_nodes)] for j in range(FAN_OUT_FC)]
                     for dst_node in dest_nodes:
                         sim_time = sim_time_base + 40 + (idx % 10) # Reducido de 4000 a 40
                         flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)

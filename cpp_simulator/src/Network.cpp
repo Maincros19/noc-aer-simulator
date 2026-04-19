@@ -109,7 +109,7 @@ double Network::getAvgJitter() const {
 }
 
 uint64_t Network::getSimulationTime() const {
-    return event_queue.getCurrentTime();
+    return current_sim_time;
 }
 
 uint64_t Network::getTotalForwarded() const {

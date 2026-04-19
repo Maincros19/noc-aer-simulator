@@ -29,6 +29,7 @@ private:
     int dim_y;
     EventQueue& event_queue;
     std::map<int, Router*> routers;
+    uint64_t current_sim_time;
 
     int getRouterId(int x, int y) const { return y * dim_x + x; }
 };

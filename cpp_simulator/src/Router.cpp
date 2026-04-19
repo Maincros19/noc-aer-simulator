@@ -24,8 +24,20 @@ void Router::receiveFlit(Flit flit, Port in_port, uint64_t current_time) {
         // Pero para garantizar CERO PÉRDIDAS, pusheamos de todos modos.
     }
     
+    bool was_empty = true;
+    for (int i = 0; i < NUM_PORTS; ++i) {
+        if (!input_buffers[static_cast<Port>(i)].empty()) {
+            was_empty = false;
+            break;
+        }
+    }
+
     input_buffers[in_port].push(flit);
-    event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, flit.dest_router_id, flit));
+    
+    // Solo añadimos evento de procesamiento si el router estaba inactivo
+    if (was_empty) {
+        event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
+    }
 }
 
 void Router::injectFlit(Flit flit, uint64_t current_time) {
