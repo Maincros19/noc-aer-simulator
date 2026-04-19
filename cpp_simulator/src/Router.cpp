@@ -4,7 +4,7 @@
 
 Router::Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq)
     : id(id), x_coord(x), y_coord(y), dim_x(dim_x), dim_y(dim_y), event_queue(eq),
-      max_buffer_size(1024), last_arbitrated_port(WEST), 
+      max_buffer_size(1024), last_arbitrated_port(WEST), is_processing_scheduled(false),
       flits_dropped(0), flits_received(0), flits_injected(0), flits_forwarded(0),
       total_latency(0), total_latency_sq(0) {
     for (int i = 0; i < NUM_PORTS; ++i) {
@@ -14,29 +14,12 @@ Router::Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq)
 }
 
 void Router::receiveFlit(Flit flit, Port in_port, uint64_t current_time) {
-    // Para un sistema AER neuromórfico real, no podemos perder eventos.
-    // Si el buffer está lleno, en lugar de descartar, simulamos un retraso (backpressure).
-    // En este modelo simplificado, simplemente permitimos que el buffer crezca si es necesario
-    // para garantizar la entrega, pero registramos la congestión si supera el tamaño máximo.
-    
-    if (input_buffers[in_port].size() >= (size_t)max_buffer_size) {
-        // Podríamos incrementar un contador de "ciclos de stall" aquí.
-        // Pero para garantizar CERO PÉRDIDAS, pusheamos de todos modos.
-    }
-    
-    bool was_empty = true;
-    for (int i = 0; i < NUM_PORTS; ++i) {
-        if (!input_buffers[static_cast<Port>(i)].empty()) {
-            was_empty = false;
-            break;
-        }
-    }
-
     input_buffers[in_port].push(flit);
     
-    // Solo añadimos evento de procesamiento si el router estaba inactivo
-    if (was_empty) {
+    // Solo "despertamos" al router si no estaba ya programado para trabajar
+    if (!is_processing_scheduled) {
         event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
+        is_processing_scheduled = true;
     }
 }
 
@@ -50,21 +33,22 @@ void Router::receiveCredit(Port out_port) {
 }
 
 void Router::processFlit(uint64_t current_time) {
-    // Intentamos procesar un flit de cada puerto (hasta 1 por ciclo en este modelo simplificado,
-    // pero podemos ser más agresivos si el hardware lo permite).
-    // Aquí implementamos un arbitraje justo.
+    is_processing_scheduled = false; // Ya estamos trabajando en este ciclo
+
     Port in_port = arbitrate();
     if (in_port == NUM_PORTS) return;
 
-    Flit flit = input_buffers[in_port].front();
+    Flit flit = input_buffers[in_port].front(); 
     Port out_port = routeFlit(flit);
 
     // CONTROL DE FLUJO: Comprobamos si el vecino tiene espacio
     if (out_port != LOCAL && downstream_credits[out_port] <= 0) {
         // STALL: No hay créditos. El flit se queda bloqueado.
-        // NO reprogramamos aquí si ya hay otros flits que podrían moverse.
-        // Pero para simplificar, reprogramamos para el siguiente ciclo.
-        event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
+        // Nos reprogramamos para intentar de nuevo en el siguiente ciclo.
+        if (!is_processing_scheduled) {
+            event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
+            is_processing_scheduled = true;
+        }
         return; 
     }
 
@@ -84,8 +68,6 @@ void Router::processFlit(uint64_t current_time) {
         else if (in_port == WEST) { prev_router_id = id - 1; prev_out_port = EAST; }
 
         if (prev_router_id >= 0 && prev_router_id < (dim_x * dim_y)) {
-            // Usamos un flit vacío con injection_time = current_time para evitar latencias enormes
-            // si el sistema intentara medir la latencia de un crédito (que no debería).
             Flit credit_flit;
             credit_flit.injection_time = current_time; 
             event_queue.addEvent(Event(current_time + 1, CREDIT_ARRIVAL, prev_router_id, prev_router_id, credit_flit, prev_out_port));
@@ -94,16 +76,19 @@ void Router::processFlit(uint64_t current_time) {
 
     switchFlit(flit, out_port, current_time);
     
-    // Si quedan más flits, nos auto-programamos para el siguiente ciclo
-    bool has_more = false;
+    // Al final del ciclo, ¿nos quedan más paquetes esperando en ALGÚN puerto?
+    bool has_more_flits = false;
     for (int i = 0; i < NUM_PORTS; ++i) {
         if (!input_buffers[static_cast<Port>(i)].empty()) {
-            has_more = true;
+            has_more_flits = true;
             break;
         }
     }
-    if (has_more) {
+    
+    // Si quedan paquetes, nos agendamos para el próximo ciclo
+    if (has_more_flits && !is_processing_scheduled) {
         event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
+        is_processing_scheduled = true;
     }
 }
 

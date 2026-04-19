@@ -17,6 +17,8 @@ public:
     void processFlit(uint64_t current_time);
     void injectFlit(Flit flit, uint64_t current_time);
     void receiveCredit(Port out_port);
+    bool isProcessingScheduled() const { return is_processing_scheduled; }
+    void setProcessingScheduled(bool scheduled) { is_processing_scheduled = scheduled; }
 
     int getX() const { return x_coord; }
     int getY() const { return y_coord; }
@@ -52,7 +54,8 @@ private:
     std::map<Port, std::queue<Flit>> input_buffers;
     std::map<Port, int> downstream_credits;
     Port last_arbitrated_port; // Para arbitraje Round Robin
-
+    bool is_processing_scheduled;
+    
     // Métricas de congestión y rendimiento
     uint64_t flits_dropped;   // Contador de flits descartados por buffer lleno
     uint64_t flits_received;  // Contador de flits que llegaron a su destino (LOCAL)

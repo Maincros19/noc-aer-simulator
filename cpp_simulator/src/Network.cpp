@@ -55,7 +55,12 @@ void Network::runSimulation() {
                 router->processFlit(current_time);
             } else if (event.type == CREDIT_ARRIVAL) {
                 router->receiveCredit(event.port);
-                event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, router->getId(), router->getId()));
+                // Solo reprogramamos si no hay ya una tarea pendiente para este router
+                // Usamos un getter o accedemos directamente si es posible
+                if (!router->isProcessingScheduled()) {
+                    event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, router->getId(), router->getId()));
+                    router->setProcessingScheduled(true);
+                }
             }
         }
     }

@@ -215,7 +215,7 @@ def run_experiment(net, dim_x=4, dim_y=4):
     for i in range(total_nodes):
         network.getRouter(i).setMaxBufferSize(SELECTED_NET['buffer'])
     
-    num_samples = 5 
+    num_samples = 1 
     flit_id_counter = 0
     total_spikes_generated = 0
     
@@ -302,6 +302,9 @@ def run_experiment(net, dim_x=4, dim_y=4):
     static_energy_uj = (static_power_uw * (sim_end_time * period_ns)) / 1e6
     total_energy_uj = dynamic_energy_uj + static_energy_uj
     
+    # El throughput real es el número de flits entregados dividido por el tiempo total de simulación en ciclos.
+    # El tiempo total es la diferencia entre el fin y el inicio de la simulación.
+    sim_duration = sim_end_time - (num_samples * 0) # Simplificado, pero sim_end_time es el horizonte temporal.
     throughput = total_received / sim_end_time if sim_end_time > 0 else 0
 
     print("\n" + "="*60)

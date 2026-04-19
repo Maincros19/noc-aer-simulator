@@ -16,7 +16,10 @@ public:
     Event getNextEvent() {
         Event event = pq.top();
         pq.pop();
-        current_time = event.timestamp; // Update current_time when an event is processed
+        // Solo actualizamos el tiempo hacia adelante para evitar saltos temporales extraños
+        if (event.timestamp > current_time) {
+            current_time = event.timestamp;
+        }
         return event;
     }
 
