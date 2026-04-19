@@ -10,6 +10,9 @@ import os
 import time
 import numpy as np
 import curses
+import locale
+
+locale.setlocale(locale.LC_ALL, "")
 
 # Add build directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'cpp_simulator', 'build'))
@@ -67,11 +70,15 @@ class CSNN(nn.Module):
 def safe_addstr(stdscr, y, x, text, attr=0):
     height, width = stdscr.getmaxyx()
     if y < height and x < width:
-        # Truncate text if it's too long for the window
-        stdscr.addstr(y, x, text[:width-x-1], attr)
+        try:
+            # Truncate text if it's too long for the window
+            # We use width-x-1 to avoid writing to the last column which can cause errors
+            stdscr.addstr(y, x, text[:width-x-1], attr)
+        except curses.error:
+            pass
 
 def draw_dashboard(stdscr, phase, progress, metrics=None):
-    stdscr.erase() # Use erase instead of clear to reduce flicker
+    stdscr.clear() # Use clear to ensure the screen is fully redrawn and avoid artifacts
     height, width = stdscr.getmaxyx()
     
     if height < 22 or width < 60:
@@ -80,46 +87,51 @@ def draw_dashboard(stdscr, phase, progress, metrics=None):
         return
 
     # Header
-    safe_addstr(stdscr, 1, 2, " 🧠 NoC-AER SIMULATOR: DASHBOARD EN TIEMPO REAL ", curses.A_BOLD | curses.color_pair(1))
-    safe_addstr(stdscr, 2, 2, "═" * (width - 4))
+    safe_addstr(stdscr, 1, 2, " [ NoC-AER SIMULATOR: DASHBOARD EN TIEMPO REAL ] ", curses.A_BOLD | curses.color_pair(1))
+    safe_addstr(stdscr, 2, 2, "=" * (width - 4))
     
     # Phase & Progress
     safe_addstr(stdscr, 4, 4, f"FASE ACTUAL: {phase}")
     bar_width = min(width - 30, 50)
     filled = int(bar_width * progress)
-    bar = "█" * filled + "░" * (bar_width - filled)
+    bar = "#" * filled + "-" * (bar_width - filled)
     safe_addstr(stdscr, 5, 4, f"PROGRESO:    [{bar}] {progress*100:.1f}%")
     
     # Configuration Box
-    safe_addstr(stdscr, 7, 4, "┌── CONFIGURACIÓN ───────────────────────────────────────────")
-    safe_addstr(stdscr, 8, 4, f"│ Tecnología: {TECH['name']}")
-    safe_addstr(stdscr, 9, 4, f"│ Frecuencia: {TECH['f_max_mhz']} MHz")
-    safe_addstr(stdscr, 10, 4, f"│ Red:        {NET_CONFIG['name']} (Buffer: {NET_CONFIG['buffer']})")
-    safe_addstr(stdscr, 11, 4, "└────────────────────────────────────────────────────────────")
+    safe_addstr(stdscr, 7, 4, "+-- CONFIGURACION -------------------------------------------")
+    safe_addstr(stdscr, 8, 4, f"| Tecnologia: {TECH['name']}")
+    safe_addstr(stdscr, 9, 4, f"| Frecuencia: {TECH['f_max_mhz']} MHz")
+    safe_addstr(stdscr, 10, 4, f"| Red:        {NET_CONFIG['name']} (Buffer: {NET_CONFIG['buffer']})")
+    safe_addstr(stdscr, 11, 4, "+------------------------------------------------------------")
     
     # Metrics Box
     if metrics:
-        safe_addstr(stdscr, 13, 4, "┌── MÉTRICAS DE HARDWARE ────────────────────────────────────")
-        safe_addstr(stdscr, 14, 4, f"│ Spikes Gen:    {metrics.get('spikes', 0):,}")
-        safe_addstr(stdscr, 15, 4, f"│ Flits NoC:     {metrics.get('flits', 0):,}")
-        safe_addstr(stdscr, 16, 4, f"│ Latencia Med:  {metrics.get('latency', 0):.2f} ciclos")
-        safe_addstr(stdscr, 17, 4, f"│ Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
-        safe_addstr(stdscr, 18, 4, f"│ Throughput:    {metrics.get('throughput', 0):.4f} flits/ciclo/nodo")
-        safe_addstr(stdscr, 19, 4, f"│ Energía Total: {metrics.get('energy', 0):.6f} uJ")
-        safe_addstr(stdscr, 20, 4, "└────────────────────────────────────────────────────────────")
+        safe_addstr(stdscr, 13, 4, "+-- METRICAS DE HARDWARE ------------------------------------")
+        safe_addstr(stdscr, 14, 4, f"| Spikes Gen:    {metrics.get('spikes', 0):,}")
+        safe_addstr(stdscr, 15, 4, f"| Flits NoC:     {metrics.get('flits', 0):,}")
+        safe_addstr(stdscr, 16, 4, f"| Latencia Med:  {metrics.get('latency', 0):.2f} ciclos")
+        safe_addstr(stdscr, 17, 4, f"| Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
+        safe_addstr(stdscr, 18, 4, f"| Throughput:    {metrics.get('throughput', 0):.4f} flits/ciclo/nodo")
+        safe_addstr(stdscr, 19, 4, f"| Energia Total: {metrics.get('energy', 0):.6f} uJ")
+        safe_addstr(stdscr, 20, 4, "+------------------------------------------------------------")
         
         # Accuracy
-        safe_addstr(stdscr, 22, 4, f"PRECISIÓN IA:  {metrics.get('accuracy', 0):.2f}%", curses.A_BOLD | curses.color_pair(2))
+        safe_addstr(stdscr, 22, 4, f"PRECISION IA:  {metrics.get('accuracy', 0):.2f}%", curses.A_BOLD | curses.color_pair(2))
     
     safe_addstr(stdscr, height-2, 2, "Presione 'q' para salir | Manus NoC-AER Engine v2.1")
     stdscr.refresh()
 
 def main(stdscr):
     # Setup curses
-    curses.start_color()
-    curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_CYAN, -1)
-    curses.init_pair(2, curses.COLOR_GREEN, -1)
+    if curses.has_colors():
+        try:
+            curses.start_color()
+            curses.use_default_colors()
+            curses.init_pair(1, curses.COLOR_CYAN, -1)
+            curses.init_pair(2, curses.COLOR_GREEN, -1)
+        except curses.error:
+            # Silently ignore color initialization errors
+            pass
     curses.curs_set(0)
     stdscr.nodelay(True)
     
@@ -170,7 +182,7 @@ def main(stdscr):
                     network.getRouter(src).injectFlit(flit, sim_time)
                     flit_id_counter += 1
     
-    draw_dashboard(stdscr, "Ejecutando Simulación Ciclo-a-Ciclo...", 0.8)
+    draw_dashboard(stdscr, "Ejecutando Simulacion Ciclo-a-Ciclo...", 0.8)
     network.runSimulation()
     
     # --- Final Metrics ---
@@ -186,7 +198,7 @@ def main(stdscr):
     }
     
     while True:
-        draw_dashboard(stdscr, "Simulación Completada ✅", 1.0, metrics)
+        draw_dashboard(stdscr, "Simulacion Completada ✅", 1.0, metrics)
         key = stdscr.getch()
         if key == ord('q'):
             break

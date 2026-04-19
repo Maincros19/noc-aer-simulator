@@ -37,6 +37,7 @@ void Network::runSimulation() {
     while (!event_queue.isEmpty()) {
         Event event = event_queue.getNextEvent();
         uint64_t current_time = event.timestamp;
+        current_sim_time = current_time;
         Router* router = getRouter(event.source_router_id);
 
         if (router) {
