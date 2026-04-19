@@ -61,6 +61,9 @@ void Network::runSimulation() {
                     event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, router->getId(), router->getId()));
                     router->setProcessingScheduled(true);
                 }
+            } else if (event.type == SOURCE_INJECTION) {
+                // Ahora sí, en el reloj correcto, el paquete entra al hardware
+                router->receiveFlit(event.flit, LOCAL, current_time);
             }
         }
     }

@@ -24,6 +24,7 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .value("ROUTER_PROCESSING", ROUTER_PROCESSING)
         .value("LINK_TRANSMISSION", LINK_TRANSMISSION)
         .value("CREDIT_ARRIVAL", CREDIT_ARRIVAL)
+        .value("SOURCE_INJECTION", SOURCE_INJECTION)
         .export_values();
 
     py::enum_<FlitType>(m, "FlitType")

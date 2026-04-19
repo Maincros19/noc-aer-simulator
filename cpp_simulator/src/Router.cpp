@@ -25,7 +25,8 @@ void Router::receiveFlit(Flit flit, Port in_port, uint64_t current_time) {
 
 void Router::injectFlit(Flit flit, uint64_t current_time) {
     flits_injected++;
-    receiveFlit(flit, LOCAL, current_time);
+    // En lugar de meterlo al buffer físico, agendamos su nacimiento
+    event_queue.addEvent(Event(current_time, SOURCE_INJECTION, id, flit.dest_router_id, flit, LOCAL));
 }
 
 void Router::receiveCredit(Port out_port) {

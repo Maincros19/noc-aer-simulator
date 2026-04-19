@@ -303,9 +303,8 @@ def run_experiment(net, dim_x=4, dim_y=4):
     total_energy_uj = dynamic_energy_uj + static_energy_uj
     
     # El throughput real es el número de flits entregados dividido por el tiempo total de simulación en ciclos.
-    # El tiempo total es la diferencia entre el fin y el inicio de la simulación.
-    sim_duration = sim_end_time - (num_samples * 0) # Simplificado, pero sim_end_time es el horizonte temporal.
-    throughput = total_received / sim_end_time if sim_end_time > 0 else 0
+    # Se normaliza por el número de nodos para obtener flits/ciclo/nodo.
+    throughput = (total_received / sim_end_time) / total_nodes if sim_end_time > 0 else 0
 
     print("\n" + "="*60)
     print(" MÉTRICAS NoC AER (SISTEMA NEUROMÓRFICO FINAL) ")

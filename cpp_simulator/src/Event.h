@@ -9,7 +9,8 @@ enum EventType {
     CREDIT_ARRIVAL,     // Priority 0 (highest)
     ROUTER_PROCESSING,  // Priority 1
     FLIT_ARRIVAL,       // Priority 2
-    LINK_TRANSMISSION   // Priority 3
+    LINK_TRANSMISSION,  // Priority 3
+    SOURCE_INJECTION    // Priority 4
 };
 
 struct Event {
