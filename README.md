@@ -72,17 +72,7 @@ Para un análisis profundo del funcionamiento interno, consulta nuestros nuevos 
 
 ---
 
-## 📊 Métricas Reales (High-Fanout SNN)
 
-Bajo una carga de trabajo real (Fan-out de hasta 32x por spike), el simulador revela el comportamiento físico de la red:
-
-| Métrica | Valor Típico | Estado |
-| :--- | :---: | :--- |
-| **Tasa de Entrega** | 100.00% | **Garantizada** |
-| **Throughput** | ~0.10 flits/ciclo | **Físicamente Consistente** |
-| **Latencia Media** | ~45,000 ciclos | **Realista (Saturación)** |
-| **Precisión IA** | ~67% (N-MNIST) | **Verificado** |
-| **Eficiencia Energética** | ~0.85 pJ/spike (22nm) | **Ultra-Eficiente** |
 
 ---
 
