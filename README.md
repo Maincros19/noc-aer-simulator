@@ -1,4 +1,4 @@
-# 🧠 NoC-AER Simulator: Simulación Neuromórfica de Alta Fidelidad (Industrial Edition) 🚀
+# 🧠 NoC-AER Simulator para SNN 🚀
 
 ¡Bienvenido al simulador **NoC-AER**! Este proyecto es una herramienta avanzada diseñada para simular la comunicación de neuronas artificiales a través de una **Red en Chip (NoC)** utilizando el protocolo **AER (Address Event Representation)**.
 
