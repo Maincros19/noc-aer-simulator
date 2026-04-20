@@ -66,6 +66,8 @@ Hemos integrado una interfaz de terminal interactiva (`nmnist_tui_sim.py`) que p
 Para un análisis profundo del funcionamiento interno, consulta nuestros nuevos informes:
 - [📄 Informe Técnico General](./informe_tecnico_noc_aer.md): Resumen de componentes y flujo de datos.
 - [⚙️ Análisis Exhaustivo de Arquitectura](./analisis_exhaustivo_noc_aer.md): Detalles sobre ruteo XY, arbitraje y modelo de energía.
+- [⚡ Modelo de Energía Detallado](./modelo_energia_detallado.md): Análisis del consumo estático y dinámico por tecnología.
+- [📡 Análisis Detallado del Fan-out AER](./analisis_fanout_aer.md): Impacto del fan-out en el tráfico, latencia y energía de la NoC.
 
 ---
 
