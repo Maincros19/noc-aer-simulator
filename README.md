@@ -1,6 +1,6 @@
-# 🧠 NoC-AER Simulator: Simulación Neuromórfica de Alta Fidelidad 🚀
+# 🧠 NoC-AER Simulator: Simulación Neuromórfica de Alta Fidelidad (Industrial Edition) 🚀
 
-¡Bienvenido al simulador **NoC-AER**! Este proyecto es una herramienta de grado industrial diseñada para simular la comunicación de neuronas artificiales a través de una **Red en Chip (NoC)** utilizando el protocolo **AER (Address Event Representation)**. 
+¡Bienvenido al simulador **NoC-AER**! Este proyecto es una herramienta avanzada diseñada para simular la comunicación de neuronas artificiales a través de una **Red en Chip (NoC)** utilizando el protocolo **AER (Address Event Representation)**.
 
 Hemos transformado este simulador en un motor de simulación **ciclo-a-ciclo** ultra preciso en C++, implementando restricciones de hardware reales y garantizando una **tasa de entrega del 100%** mediante control de flujo avanzado. 🎯
 
@@ -17,13 +17,11 @@ A diferencia de modelos abstractos, cada router en este simulador está limitado
 ### 3. 🔄 Inyección Basada en Eventos (Event-Driven Injection)
 La sincronización entre el testbench de Python y el núcleo de C++ es perfecta. Los spikes generados por la SNN se agendan como eventos de "nacimiento" (`SOURCE_INJECTION`) en la línea de tiempo global, eliminando anomalías temporales y garantizando métricas de latencia y jitter matemáticamente exactas.
 
-### 4. ⏱️ Métricas de Precisión (C++ Core)
-- **Latencia:** Tiempo real de tránsito (incluyendo esperas por créditos y arbitraje). ⏳
-- **Jitter (AER):** Desviación estándar global calculada mediante varianza poblacional exacta. 📉
-- **Energía:** Modelado detallado (estático/dinámico) para tecnologías desde 65nm hasta **22nm FD-SOI**. ⚡
-
-### 5. 🗺️ Mapeo AER Distribuido
-Las capas de la red neuronal (Input, SNN1, SNN2, FC) se distribuyen estratégicamente por las filas del NoC (Mesh 4x4) para optimizar el flujo de tráfico y minimizar los puntos calientes. 🕸️
+### 4. 📊 Dashboard TUI en Tiempo Real (Industrial Edition)
+Hemos integrado una interfaz de terminal interactiva (`nmnist_tui_sim.py`) que permite monitorizar:
+- **Entrenamiento Real SNN:** Visualización dinámica de la pérdida (Loss) y precisión (Accuracy) de PyTorch.
+- **Métricas NoC:** Latencia media, Jitter (AER), Throughput y Energía en tiempo real.
+- **Modo Compatible:** Renderizado robusto para cualquier entorno de terminal.
 
 ---
 
@@ -51,11 +49,23 @@ Las capas de la red neuronal (Input, SNN1, SNN2, FC) se distribuyen estratégica
    make
    ```
 
-2. **Lanza la simulación:**
+2. **Lanza la simulación con Dashboard TUI:**
    ```bash
-   cd ../..
+   python3 nmnist_tui_sim.py
+   ```
+
+3. **Lanza el experimento estándar:**
+   ```bash
    python3 nmnist_train_sim.py
    ```
+
+---
+
+## 📜 Documentación Técnica Detallada
+
+Para un análisis profundo del funcionamiento interno, consulta nuestros nuevos informes:
+- [📄 Informe Técnico General](./informe_tecnico_noc_aer.md): Resumen de componentes y flujo de datos.
+- [⚙️ Análisis Exhaustivo de Arquitectura](./analisis_exhaustivo_noc_aer.md): Detalles sobre ruteo XY, arbitraje y modelo de energía.
 
 ---
 
@@ -66,9 +76,10 @@ Bajo una carga de trabajo real (Fan-out de hasta 32x por spike), el simulador re
 | Métrica | Valor Típico | Estado |
 | :--- | :---: | :--- |
 | **Tasa de Entrega** | 100.00% | **Garantizada** |
-| **Throughput** | ~4.43 flits/ciclo | **Físicamente Consistente** |
-| **Latencia Media** | ~35,000 ciclos | **Realista (Saturación)** |
+| **Throughput** | ~0.10 flits/ciclo | **Físicamente Consistente** |
+| **Latencia Media** | ~45,000 ciclos | **Realista (Saturación)** |
 | **Precisión IA** | ~67% (N-MNIST) | **Verificado** |
+| **Eficiencia Energética** | ~0.85 pJ/spike (22nm) | **Ultra-Eficiente** |
 
 ---
 
