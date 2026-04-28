@@ -128,10 +128,14 @@ def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
 
     if metrics:
         print("\n +-- RESULTADOS HARDWARE -------------------------------------")
-        print(f" | Spikes: {metrics.get('spikes'):,} | Flits: {metrics.get('flits'):,}")
-        print(f" | Latencia: {metrics.get('latency'):.2f} ciclos | Jitter: {metrics.get('jitter'):.2f}")
-        print(f" | Energía: {metrics.get('energy'):.6f} uJ | T-Put: {metrics.get('throughput'):.4f}")
+        print(f" | Spikes Gen:    {metrics.get('spikes', 0):,}")
+        print(f" | Flits NoC:     {metrics.get('flits', 0):,}")
+        print(f" | Latencia Med:  {metrics.get('latency', 0):.2f} ciclos")
+        print(f" | Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
+        print(f" | Throughput:    {metrics.get('throughput', 0):.6f} flits/ciclo/nodo")
+        print(f" | Energia Total: {metrics.get('energy', 0):.6f} uJ")
         print(" +------------------------------------------------------------")
+        print(f"\n PRECISION IA FINAL:  {metrics.get('accuracy', 0):.2f}%")
 
 def main_compat():
     args = parse_args()
