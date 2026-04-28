@@ -1,1 +1,0 @@
-/usr/bin/c++ -fPIC -flto=auto -shared  -o noc_simulator_pybind.cpython-311-x86_64-linux-gnu.so CMakeFiles/noc_simulator_pybind.dir/src/pybind_interface.cpp.o  libnoc_simulator_core.a /usr/lib/x86_64-linux-gnu/libpython3.11.so 

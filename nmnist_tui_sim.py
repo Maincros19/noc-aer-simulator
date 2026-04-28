@@ -9,6 +9,7 @@ import sys
 import os
 import time
 import numpy as np
+import argparse
 
 # Intentamos importar curses, pero permitimos que falle
 try:
@@ -24,18 +25,23 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'cpp_simulator', 'build'
 import noc_simulator_pybind as ncs
 
 # --- Configuration ---
-TECH = {"name": "Neuromorphic-Specialized (22nm FD-SOI)", "energy_per_spike": 0.85, "f_max_mhz": 1200, "static_power_uw": 1.2}
-NET_CONFIG = {"name": "Estándar (Baja Congestión)", "buffer": 4096}
-TRAIN_EPOCHS = 1
-TRAIN_ITERATIONS = 20 # Aumentamos para ver el proceso
-NUM_SAMPLES = 1
+TECH = {
+    "name": "Neuromorphic-Specialized (22nm FD-SOI)",
+    "energy_per_spike": 0.85,
+    "f_max_mhz": 1200,
+    "static_power_uw": 1.2
+}
+def parse_args():
+    parser = argparse.ArgumentParser(description="NoC-AER Simulator Industrial Edition")
+    parser.add_argument("--dim", type=int, default=4, help="Dimensión de la malla NoC (ej. 4 para 4x4)")
+    parser.add_argument("--buffer", type=int, default=4096, help="Tamaño del buffer de los routers")
+    parser.add_argument("--epochs", type=int, default=1, help="Épocas de entrenamiento")
+    parser.add_argument("--iters", type=int, default=20, help="Iteraciones por época")
+    parser.add_argument("--samples", type=int, default=1, help="Muestras para simulación NoC")
+    parser.add_argument("--lr", type=float, default=2e-3, help="Tasa de aprendizaje")
+    return parser.parse_args()
 
-device = torch.device("cpu")
-sensor_size = (34, 34, 2)
-transform = tonic.transforms.Compose([
-    tonic.transforms.ToFrame(sensor_size=sensor_size, n_time_bins=15),
-    torch.from_numpy,
-])
+
 
 # --- Model Definition ---
 spike_grad = surrogate.atan()
@@ -58,169 +64,173 @@ class CSNN(nn.Module):
         mem1 = self.snn1.init_leaky()
         mem2 = self.snn2.init_leaky()
         mem3 = self.snn3.init_leaky()
-        spk1_rec, spk2_rec, spk_out_rec = [], [], []
+
+        # Listas para guardar lo que enviaremos a la NoC (ya con pooling)
+        spk1_pooled_rec = []
+        spk2_pooled_rec = []
+        spk_out_rec = []
+
         for step in range(x.size(0)):
+            # Capa 1: Conv -> SNN
             cur = self.conv1(x[step])
             spk1, mem1 = self.snn1(cur, mem1)
-            cur = self.pool1(spk1)
-            cur = self.conv2(cur)
+
+            # Operación de Pooling local (lo que reduce los datos antes de la NoC)
+            cur_p1 = self.pool1(spk1)
+            spk1_pooled_rec.append(cur_p1)
+
+            # Capa 2: Recibe la salida de pool1
+            cur = self.conv2(cur_p1)
             spk2, mem2 = self.snn2(cur, mem2)
-            cur = self.pool2(cur)
-            cur = self.flatten(cur)
+
+            # Segundo Pooling local
+            cur_p2 = self.pool2(spk2)
+            spk2_pooled_rec.append(cur_p2)
+
+            # Capa de Salida
+            cur = self.flatten(cur_p2)
             cur = self.fc1(cur)
             spk_out, mem3 = self.snn3(cur, mem3)
-            spk1_rec.append(spk1); spk2_rec.append(spk2); spk_out_rec.append(spk_out)
-        return torch.stack(spk_out_rec), torch.stack(spk1_rec), torch.stack(spk2_rec)
+            spk_out_rec.append(spk_out)
 
-def draw_dashboard_compat(phase, progress, metrics=None, train_info=None):
-    # Limpiar pantalla de forma compatible
+        # Retornamos los stacks de los tensores ya procesados paso a paso
+        return (torch.stack(spk_out_rec),
+                torch.stack(spk1_pooled_rec),
+                torch.stack(spk2_pooled_rec))
+
+# --- Utilidades de Mapeo y Dashboard ---
+def get_node_mapping(dim):
+    total_nodes = dim * dim
+    nodes_per_layer = total_nodes // 4
+    return {
+        "input":  list(range(0, nodes_per_layer)),
+        "snn1":   list(range(nodes_per_layer, nodes_per_layer * 2)),
+        "snn2":   list(range(nodes_per_layer * 2, nodes_per_layer * 3)),
+        "output": list(range(nodes_per_layer * 3, total_nodes))
+    }
+
+def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
     os.system('clear' if os.name == 'posix' else 'cls')
-    
-    width = 70
-    print("\n" + " [ NoC-AER SIMULATOR: DASHBOARD EN TIEMPO REAL ] ".center(width, "="))
-    print(f"\n FASE ACTUAL: {phase}")
-    
-    bar_width = 40
-    filled = int(bar_width * progress)
-    bar = "█" * filled + "░" * (bar_width - filled)
-    print(f" PROGRESO:    [{bar}] {progress*100:.1f}%")
-    
+    width = 75
+    print("\n" + f" [ NoC-AER SIMULATOR: Malla {args.dim}x{args.dim} ] ".center(width, "="))
+    print(f"\n FASE: {phase}")
+
+    bar_w = 40
+    filled = int(bar_w * progress)
+    bar = "█" * filled + "░" * (bar_w - filled)
+    print(f" PROGRESO: [{bar}] {progress*100:.1f}%")
+
     if train_info:
-        print("\n +-- ESTADO DEL ENTRENAMIENTO SNN ----------------------------")
-        print(f" | Epoca:      {train_info.get('epoch', 0)}")
-        print(f" | Iteracion:  {train_info.get('iter', 0)} / {TRAIN_ITERATIONS}")
-        print(f" | Loss:       {train_info.get('loss', 0):.4f}")
-        print(f" | Accuracy:   {train_info.get('acc', 0):.2f}%")
+        print("\n +-- ENTRENAMIENTO -------------------------------------------")
+        print(f" | Epoca: {train_info.get('epoch')} | Iter: {train_info.get('iter')}/{args.iters}")
+        print(f" | Loss: {train_info.get('loss', 0):.4f} | Acc: {train_info.get('acc', 0):.2f}%")
         print(" +------------------------------------------------------------")
 
-    print("\n +-- CONFIGURACION NoC ---------------------------------------")
-    print(f" | Tecnologia: {TECH['name']}")
-    print(f" | Frecuencia: {TECH['f_max_mhz']} MHz")
-    print(f" | Red:        {NET_CONFIG['name']} (Buffer: {NET_CONFIG['buffer']})")
-    print(" +------------------------------------------------------------")
-    
     if metrics:
-        print("\n +-- METRICAS DE HARDWARE (RESULTADO FINAL) ------------------")
-        print(f" | Spikes Gen:    {metrics.get('spikes', 0):,}")
-        print(f" | Flits NoC:     {metrics.get('flits', 0):,}")
-        print(f" | Latencia Med:  {metrics.get('latency', 0):.2f} ciclos")
-        print(f" | Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
-        print(f" | Throughput:    {metrics.get('throughput', 0):.4f} flits/ciclo/nodo")
-        print(f" | Energia Total: {metrics.get('energy', 0):.6f} uJ")
+        print("\n +-- RESULTADOS HARDWARE -------------------------------------")
+        print(f" | Spikes: {metrics.get('spikes'):,} | Flits: {metrics.get('flits'):,}")
+        print(f" | Latencia: {metrics.get('latency'):.2f} ciclos | Jitter: {metrics.get('jitter'):.2f}")
+        print(f" | Energía: {metrics.get('energy'):.6f} uJ | T-Put: {metrics.get('throughput'):.4f}")
         print(" +------------------------------------------------------------")
-        print(f"\n PRECISION IA FINAL:  {metrics.get('accuracy', 0):.2f}%")
-    
-    print(f"\n NoC-AER Engine v2.1 (Industrial Edition) | COMPAT_MODE")
-    print("=" * width)
 
 def main_compat():
-    # --- Phase 0: Dataset ---
-    draw_dashboard_compat("Preparando Dataset N-MNIST...", 0.05)
+    args = parse_args()
+    device = torch.device("cpu")
+    nodes = get_node_mapping(args.dim)
+
+    # Dataset
+    sensor_size = (34, 34, 2)
+    transform = tonic.transforms.Compose([
+        tonic.transforms.ToFrame(sensor_size=sensor_size, n_time_bins=15),
+        torch.from_numpy,
+    ])
+
+    draw_dashboard_compat("Cargando Dataset N-MNIST...", 0.05, args)
     trainset = tonic.datasets.NMNIST(save_to='./data', train=True, transform=transform)
     testset = tonic.datasets.NMNIST(save_to='./data', train=False, transform=transform)
     train_loader = DataLoader(trainset, batch_size=32, collate_fn=tonic.collation.PadTensors(batch_first=False), shuffle=True)
     test_loader = DataLoader(testset, batch_size=32, collate_fn=tonic.collation.PadTensors(batch_first=False), shuffle=False)
 
-    # --- Phase 1: Real Training ---
+    # Fase 1: Entrenamiento Real
     net = CSNN(beta, spike_grad).to(device)
-    optimizer = torch.optim.Adam(net.parameters(), lr=2e-3, betas=(0.9, 0.999))
+    optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
     loss_fn = SF.mse_count_loss(correct_rate=0.8, incorrect_rate=0.2)
-    
+
     acc = 0.0
-    for epoch in range(TRAIN_EPOCHS):
+    for epoch in range(args.epochs):
         for i, (data, targets) in enumerate(train_loader):
-            if i >= TRAIN_ITERATIONS: break
-            
+            if i >= args.iters: break
+
             net.train()
-            data, targets = data.to(device), targets.to(device)
-            spk_out, _, _ = net(data.float())
-            loss_val = loss_fn(spk_out, targets)
-            
+            spk_out, _, _ = net(data.to(device).float())
+            loss_val = loss_fn(spk_out, targets.to(device))
+
             optimizer.zero_grad()
             loss_val.backward()
             optimizer.step()
-            
-            # Update Dashboard with real training metrics
+
             if i % 2 == 0:
                 with torch.no_grad():
                     net.eval()
-                    # Quick accuracy check on a small batch
                     test_data, test_targets = next(iter(test_loader))
-                    spk_out_test, _, _ = net(test_data.float())
-                    _, predicted = spk_out_test.sum(dim=0).max(1)
+                    spk_test, _, _ = net(test_data.float())
+                    _, predicted = spk_test.sum(dim=0).max(1)
                     acc = (predicted == test_targets).sum().item() / test_targets.size(0) * 100
-                
-                draw_dashboard_compat("Entrenando Modelo SNN (PROCESO REAL)", 0.1 + (i/TRAIN_ITERATIONS)*0.4, 
-                                     train_info={'epoch': epoch, 'iter': i, 'loss': loss_val.item(), 'acc': acc})
-    
-    # --- Phase 2: NoC Simulation ---
-    draw_dashboard_compat("Inyectando Eventos AER en NoC...", 0.6)
+
+                draw_dashboard_compat("Entrenando Modelo SNN...", 0.1 + (i/args.iters)*0.4, args,
+                                     train_info={'epoch': epoch+1, 'iter': i, 'loss': loss_val.item(), 'acc': acc})
+
+    # Fase 2: Simulación NoC
+    draw_dashboard_compat("Inyectando Tráfico en NoC...", 0.6, args)
     event_queue = ncs.EventQueue()
-    network = ncs.Network(4, 4, event_queue)
-    for i in range(16): network.getRouter(i).setMaxBufferSize(NET_CONFIG['buffer'])
-    
-    flit_id_counter = 0
-    total_spikes = 0
-    input_nodes = list(range(0, 4)); snn1_nodes = list(range(4, 8)); snn2_nodes = list(range(8, 12)); output_nodes = list(range(12, 16))
-    FAN_OUT_CONV1 = 12; FAN_OUT_CONV2 = 32; FAN_OUT_FC = 10
-    
+    network = ncs.Network(args.dim, args.dim, event_queue)
+    for r in range(args.dim * args.dim):
+        network.getRouter(r).setMaxBufferSize(args.buffer)
+
+    flit_id, total_spikes = 0, 0
     net.eval()
     with torch.no_grad():
-        for i in range(NUM_SAMPLES):
-            data, label = testset[i]
+        for i in range(args.samples):
+            data, _ = testset[i]
             data = data.to(device).unsqueeze(1)
-            spk_out, spk1, spk2 = net(data.float())
+            spk_out, spk1_p, spk2_p = net(data.float())
+
             for step in range(data.size(0)):
-                sim_time_base = step * 100 + (i * 2000)
-                input_spikes = (data[step] > 0).nonzero(as_tuple=False)
-                total_spikes += len(input_spikes)
-                for idx, spike in enumerate(input_spikes):
-                    pixel_idx = spike[2].item() * 34 + spike[3].item()
-                    src_node = input_nodes[pixel_idx % len(input_nodes)]
-                    dest_nodes = [snn1_nodes[j % len(snn1_nodes)] for j in range(FAN_OUT_CONV1)]
-                    for dst_node in dest_nodes:
-                        sim_time = sim_time_base + (idx % 10)
-                        flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
-                        network.getRouter(src_node).injectFlit(flit, sim_time)
-                        flit_id_counter += 1
-                
-                spikes1 = (spk1[step] > 0).nonzero(as_tuple=False)
-                total_spikes += len(spikes1)
-                for idx, s in enumerate(spikes1):
-                    src_node = snn1_nodes[idx % len(snn1_nodes)]
-                    dest_nodes = [snn2_nodes[j % len(snn2_nodes)] for j in range(FAN_OUT_CONV2)]
-                    for dst_node in dest_nodes:
-                        sim_time = sim_time_base + 20 + (idx % 10)
-                        flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
-                        network.getRouter(src_node).injectFlit(flit, sim_time)
-                        flit_id_counter += 1
-                
-                spikes2 = (spk2[step] > 0).nonzero(as_tuple=False)
-                total_spikes += len(spikes2)
-                for idx, s in enumerate(spikes2):
-                    src_node = snn2_nodes[idx % len(snn2_nodes)]
-                    dest_nodes = [output_nodes[j % len(output_nodes)] for j in range(FAN_OUT_FC)]
-                    for dst_node in dest_nodes:
-                        sim_time = sim_time_base + 40 + (idx % 10)
-                        flit = ncs.Flit(flit_id_counter, 0, ncs.FlitType.BODY, src_node, dst_node, src_node, sim_time)
-                        network.getRouter(src_node).injectFlit(flit, sim_time)
-                        flit_id_counter += 1
-    
-    draw_dashboard_compat("Ejecutando Simulacion Ciclo-a-Ciclo...", 0.8)
+                t_base = step * 100 + (i * 2000)
+
+                # Función para inyectar flits entre capas
+                def inject_layer(tensor, src_grp, dst_grp, fan, offset):
+                    nonlocal flit_id, total_spikes
+                    idxs = (tensor > 0).nonzero(as_tuple=False)
+                    total_spikes += len(idxs)
+                    for idx, _ in enumerate(idxs):
+                        src = src_grp[idx % len(src_grp)]
+                        dsts = [dst_grp[j % len(dst_grp)] for j in range(fan)]
+                        for d in dsts:
+                            t_sim = t_base + offset + (idx % 10)
+                            flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, d, src, t_sim)
+                            network.getRouter(src).injectFlit(flit, t_sim)
+                            flit_id += 1
+
+                inject_layer(data[step], nodes['input'], nodes['snn1'], 12, 0)
+                inject_layer(spk1_p[step], nodes['snn1'], nodes['snn2'], 32, 20)
+                inject_layer(spk2_p[step], nodes['snn2'], nodes['output'], 10, 40)
+
+    draw_dashboard_compat("Ejecutando Simulación Ciclo-a-Ciclo...", 0.85, args)
     network.runSimulation()
-    
-    sim_time_cycles = network.getSimulationTime()
-    total_forwarded = network.getTotalForwarded()
+
+    # Métricas Finales
+    sim_t = network.getSimulationTime()
     period_ns = 1000.0 / TECH['f_max_mhz']
     metrics = {
-        "spikes": total_spikes, "flits": flit_id_counter, "latency": network.getAvgLatency(),
-        "jitter": network.getAvgJitter(), "throughput": (network.getTotalFlitsReceived() / sim_time_cycles) / 16 if sim_time_cycles > 0 else 0,
-        "energy": (total_forwarded * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_time_cycles * period_ns)) / 1e6,
+        "spikes": total_spikes, "flits": flit_id, "latency": network.getAvgLatency(),
+        "jitter": network.getAvgJitter(),
+        "throughput": (network.getTotalFlitsReceived() / sim_t) / (args.dim**2) if sim_t > 0 else 0,
+        "energy": (network.getTotalForwarded() * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_t * period_ns)) / 1e6,
         "accuracy": acc
     }
-    
-    draw_dashboard_compat("Simulacion Completada ✅", 1.0, metrics)
-    print("\nEjecución finalizada con éxito.")
+
+    draw_dashboard_compat("Simulación Completada ✅", 1.0, args, metrics=metrics)
 
 if __name__ == "__main__":
     main_compat()

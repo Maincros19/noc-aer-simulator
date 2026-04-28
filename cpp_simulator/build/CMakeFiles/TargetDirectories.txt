@@ -1,4 +1,0 @@
-/home/ubuntu/noc-aer-simulator/cpp_simulator/build/CMakeFiles/noc_simulator_core.dir
-/home/ubuntu/noc-aer-simulator/cpp_simulator/build/CMakeFiles/noc_simulator_pybind.dir
-/home/ubuntu/noc-aer-simulator/cpp_simulator/build/CMakeFiles/edit_cache.dir
-/home/ubuntu/noc-aer-simulator/cpp_simulator/build/CMakeFiles/rebuild_cache.dir
