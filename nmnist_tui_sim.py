@@ -10,6 +10,7 @@ import os
 import time
 import numpy as np
 import argparse
+import random
 
 # Intentamos importar curses, pero permitimos que falle
 try:
@@ -41,6 +42,23 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=2e-3, help="Tasa de aprendizaje")
     return parser.parse_args()
 
+def set_determinism(seed=42):
+    """Fija todas las semillas para garantizar la reproducibilidad."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    # Aunque usas CPU, es buena práctica por si en el futuro cambias a GPU
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+    # Fuerza a PyTorch a usar algoritmos deterministas donde sea posible
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+    # Configurar variable de entorno para determinismo en ciertas operaciones CUDA/cuDNN
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 
 
 # --- Model Definition ---
@@ -134,10 +152,14 @@ def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
         print(f" | Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
         print(f" | Throughput:    {metrics.get('throughput', 0):.6f} flits/ciclo/nodo")
         print(f" | Energia Total: {metrics.get('energy', 0):.6f} uJ")
+        print(f" | Eficiencia:    {metrics.get('energy_eff', 0):,.2f} flits/uJ")
+        print(f" | Rendimiento:   {metrics.get('temporal_perf', 0):,.0f} flits/segundo")
         print(" +------------------------------------------------------------")
         print(f"\n PRECISION IA FINAL:  {metrics.get('accuracy', 0):.2f}%")
 
 def main_compat():
+    set_determinism(42)
+
     args = parse_args()
     device = torch.device("cpu")
     nodes = get_node_mapping(args.dim)
@@ -152,8 +174,25 @@ def main_compat():
     draw_dashboard_compat("Cargando Dataset N-MNIST...", 0.05, args)
     trainset = tonic.datasets.NMNIST(save_to='./data', train=True, transform=transform)
     testset = tonic.datasets.NMNIST(save_to='./data', train=False, transform=transform)
-    train_loader = DataLoader(trainset, batch_size=32, collate_fn=tonic.collation.PadTensors(batch_first=False), shuffle=True)
-    test_loader = DataLoader(testset, batch_size=32, collate_fn=tonic.collation.PadTensors(batch_first=False), shuffle=False)
+
+    # Creamos un generador determinista para el shuffle
+    g = torch.Generator()
+    g.manual_seed(42)
+
+    train_loader = DataLoader(
+        trainset,
+        batch_size=32,
+        collate_fn=tonic.collation.PadTensors(batch_first=False),
+        shuffle=True,
+        generator=g  # <--- Añadir el generador
+    )
+
+    test_loader = DataLoader(
+        testset,
+        batch_size=32,
+        collate_fn=tonic.collation.PadTensors(batch_first=False),
+        shuffle=False
+    )
 
     # Fase 1: Entrenamiento Real
     net = CSNN(beta, spike_grad).to(device)
@@ -224,14 +263,31 @@ def main_compat():
     network.runSimulation()
 
     # Métricas Finales
-    sim_t = network.getSimulationTime()
-    period_ns = 1000.0 / TECH['f_max_mhz']
+    sim_t = network.getSimulationTime() # Tiempo total en ciclos de reloj
+    period_ns = 1000.0 / TECH['f_max_mhz'] # Duración de un ciclo en nanosegundos
+
+    # Calculamos la energía total primero
+    total_energy_uj = (network.getTotalForwarded() * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_t * period_ns)) / 1e6
+
+    # --- NUEVOS CÁLCULOS DE PRODUCTIVIDAD ---
+    # 1. Eficiencia Energética (Flits por microjulio)
+    energy_eff = flit_id / total_energy_uj if total_energy_uj > 0 else 0
+
+    # 2. Rendimiento Temporal (Flits por segundo simulado)
+    # Convertimos ciclos -> nanosegundos -> segundos
+    total_time_seconds = sim_t * period_ns * 1e-9
+    temporal_perf = flit_id / total_time_seconds if total_time_seconds > 0 else 0
+
     metrics = {
-        "spikes": total_spikes, "flits": flit_id, "latency": network.getAvgLatency(),
+        "spikes": total_spikes,
+        "flits": flit_id,
+        "latency": network.getAvgLatency(),
         "jitter": network.getAvgJitter(),
         "throughput": (network.getTotalFlitsReceived() / sim_t) / (args.dim**2) if sim_t > 0 else 0,
-        "energy": (network.getTotalForwarded() * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_t * period_ns)) / 1e6,
-        "accuracy": acc
+        "energy": total_energy_uj,
+        "accuracy": acc,
+        "energy_eff": energy_eff,      # Añadido
+        "temporal_perf": temporal_perf # Añadido
     }
 
     draw_dashboard_compat("Simulación Completada ✅", 1.0, args, metrics=metrics)
