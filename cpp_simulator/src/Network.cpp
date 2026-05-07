@@ -63,8 +63,9 @@ void Network::runSimulation() {
                     router->setProcessingScheduled(true);
                 }
             } else if (event.type == SOURCE_INJECTION) {
-                // Ahora sí, en el reloj correcto, el paquete entra al hardware
-                router->receiveFlit(event.flit, LOCAL, current_time);
+                // El software deposita el paquete en la RAM del nodo.
+                // Se inyectará orgánicamente ciclo a ciclo.
+                router->addPendingInjection(event.flit, current_time);
             }
         }
     }

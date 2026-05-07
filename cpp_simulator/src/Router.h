@@ -38,8 +38,10 @@ public:
         return std::sqrt(std::max(0.0, variance));
     }
 
-    void setMaxBufferSize(int size) { max_buffer_size = size; }
+    void setMaxBufferSize(int size);
+    bool canAcceptLocalFlit();
     int getMaxBufferSize() const { return max_buffer_size; }
+    void addPendingInjection(Flit flit, uint64_t current_time);
 
 private:
     int id;
@@ -68,6 +70,8 @@ private:
     Port routeFlit(const Flit& flit);
     Port arbitrate();
     void switchFlit(Flit flit, Port out_port, uint64_t current_time);
+
+    std::queue<Flit> pending_injections;
 };
 
 #endif

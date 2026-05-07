@@ -15,7 +15,7 @@ Router::Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq)
 
 void Router::receiveFlit(Flit flit, Port in_port, uint64_t current_time) {
     input_buffers[in_port].push(flit);
-    
+
     // Solo "despertamos" al router si no estaba ya programado para trabajar
     if (!is_processing_scheduled) {
         event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
@@ -36,10 +36,17 @@ void Router::receiveCredit(Port out_port) {
 void Router::processFlit(uint64_t current_time) {
     is_processing_scheduled = false; // Ya estamos trabajando en este ciclo
 
+    // --- NUEVO: HARDWARE DMA INJECTION ---
+    // Transferimos 1 paquete por ciclo de la RAM al Búfer Físico (si hay espacio)
+    if (!pending_injections.empty() && input_buffers[LOCAL].size() < max_buffer_size) {
+        input_buffers[LOCAL].push(pending_injections.front());
+        pending_injections.pop();
+    }
+
     Port in_port = arbitrate();
     if (in_port == NUM_PORTS) return;
 
-    Flit flit = input_buffers[in_port].front(); 
+    Flit flit = input_buffers[in_port].front();
     Port out_port = routeFlit(flit);
 
     // CONTROL DE FLUJO: Comprobamos si el vecino tiene espacio
@@ -50,19 +57,19 @@ void Router::processFlit(uint64_t current_time) {
             event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
             is_processing_scheduled = true;
         }
-        return; 
+        return;
     }
 
     // Si llegamos aquí, hay espacio físico en el vecino.
-    input_buffers[in_port].pop(); 
-    if (out_port != LOCAL) downstream_credits[out_port]--; 
+    input_buffers[in_port].pop();
+    if (out_port != LOCAL) downstream_credits[out_port]--;
 
     flits_forwarded++;
-    
+
     // GENERAR CRÉDITO para el router que nos envió este flit
     if (in_port != LOCAL) {
         int prev_router_id = -1;
-        Port prev_out_port = LOCAL; 
+        Port prev_out_port = LOCAL;
         if (in_port == NORTH) { prev_router_id = id - dim_x; prev_out_port = SOUTH; }
         else if (in_port == SOUTH) { prev_router_id = id + dim_x; prev_out_port = NORTH; }
         else if (in_port == EAST) { prev_router_id = id + 1; prev_out_port = WEST; }
@@ -70,13 +77,13 @@ void Router::processFlit(uint64_t current_time) {
 
         if (prev_router_id >= 0 && prev_router_id < (dim_x * dim_y)) {
             Flit credit_flit;
-            credit_flit.injection_time = current_time; 
+            credit_flit.injection_time = current_time;
             event_queue.addEvent(Event(current_time + 1, CREDIT_ARRIVAL, prev_router_id, prev_router_id, credit_flit, prev_out_port));
         }
     }
 
     switchFlit(flit, out_port, current_time);
-    
+
     // Al final del ciclo, ¿nos quedan más paquetes esperando en ALGÚN puerto?
     bool has_more_flits = false;
     for (int i = 0; i < NUM_PORTS; ++i) {
@@ -85,9 +92,9 @@ void Router::processFlit(uint64_t current_time) {
             break;
         }
     }
-    
-    // Si quedan paquetes, nos agendamos para el próximo ciclo
-    if (has_more_flits && !is_processing_scheduled) {
+
+    // NUEVO: Nos reprogramamos si hay flits en red O si quedan inyecciones pendientes en RAM
+    if ((has_more_flits || !pending_injections.empty()) && !is_processing_scheduled) {
         event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
         is_processing_scheduled = true;
     }
@@ -139,5 +146,25 @@ void Router::switchFlit(Flit flit, Port out_port, uint64_t current_time) {
             flit.current_router_id = id;
             event_queue.addEvent(Event(current_time + 1, FLIT_ARRIVAL, next_router_id, flit.dest_router_id, flit));
         }
+    }
+}
+void Router::setMaxBufferSize(int size) {
+    max_buffer_size = size;
+    // Sincronizamos los créditos de todos los puertos con el nuevo tamaño
+    for (int i = 0; i < NUM_PORTS; ++i) {
+        downstream_credits[static_cast<Port>(i)] = size;
+    }
+}
+
+bool Router::canAcceptLocalFlit() {
+    // Comprueba si el buffer del puerto LOCAL tiene espacio disponible
+    return input_buffers[LOCAL].size() < max_buffer_size;
+}
+void Router::addPendingInjection(Flit flit, uint64_t current_time) {
+    pending_injections.push(flit);
+    // Si el router estaba dormido, lo despertamos para que empiece a inyectar
+    if (!is_processing_scheduled) {
+        event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
+        is_processing_scheduled = true;
     }
 }
