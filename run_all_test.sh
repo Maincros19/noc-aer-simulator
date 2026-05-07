@@ -74,7 +74,7 @@ for BUF in "${BUFFERS[@]}"; do
     python3 nmnist_tui_sim.py --dim 4 --samples 5 --buffer $BUF > $TMP_FILE 2>&1
 
     ALL_METRICS=$(extraer_todas_las_metricas)
-    LAT=$(echo "$ALL_METRICS" | cut -d',' -f3) # Extraer solo latencia para el echo
+    LAT=$(echo "$ALL_METRICS" | cut -d',' -f3)
 
     if [ "$LAT" == "NaN" ]; then echo "ERROR"; else echo "OK! (Lat: $LAT)"; fi
     echo "$BUF,$ALL_METRICS" >> $CSV_BUFFER
