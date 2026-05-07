@@ -1,7 +1,8 @@
-/simulator/noc_sim
+﻿/simulator/noc_sim
 /simulator/obj/
 venv/
 data/
 __pycache__/
 cpp_simulator/build/
 *.so
+resultados_validacion/

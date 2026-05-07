@@ -239,25 +239,35 @@ def main_compat():
             spk_out, spk1_p, spk2_p = net(data.float())
 
             for step in range(data.size(0)):
-                t_base = step * 100 + (i * 2000)
+                # Damos mucho más espacio base entre cada paso de tiempo (step)
+                t_base = step * 2000 + (i * 50000)
 
-                # Función para inyectar flits entre capas
-                def inject_layer(tensor, src_grp, dst_grp, fan, offset):
+                # Función para inyectar flits con dispersión temporal (spread)
+                def inject_layer(tensor, src_grp, dst_grp, fan, offset, spread):
                     nonlocal flit_id, total_spikes
                     idxs = (tensor > 0).nonzero(as_tuple=False)
                     total_spikes += len(idxs)
                     for idx, _ in enumerate(idxs):
                         src = src_grp[idx % len(src_grp)]
-                        dsts = [dst_grp[j % len(dst_grp)] for j in range(fan)]
-                        for d in dsts:
-                            t_sim = t_base + offset + (idx % 10)
-                            flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, d, src, t_sim)
-                            network.getRouter(src).injectFlit(flit, t_sim)
+                        dsts = [dst_grp[k % len(dst_grp)] for k in range(fan)]
+
+                        # Usamos enumerate para tener el índice 'j' del destino y hacer el desfase
+                        for j, d in enumerate(dsts):
+                            # Espaciamos la inyección usando el spread en lugar de % 10
+                            t_sim = t_base + offset + (idx % spread)
+
+                            # Para evitar que varios flits del mismo origen intenten nacer
+                            # exactamente en el mismo ciclo, sumamos un pequeño retraso
+                            t_sim += (j % 5)
+
+                            flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, d, src, int(t_sim))
+                            network.getRouter(src).injectFlit(flit, int(t_sim))
                             flit_id += 1
 
-                inject_layer(data[step], nodes['input'], nodes['snn1'], 12, 0)
-                inject_layer(spk1_p[step], nodes['snn1'], nodes['snn2'], 32, 20)
-                inject_layer(spk2_p[step], nodes['snn2'], nodes['output'], 10, 40)
+                # Inyectamos con offsets y spreads ajustados para no saturar el DMA
+                inject_layer(data[step], nodes['input'], nodes['snn1'], 12, offset=0, spread=100)
+                inject_layer(spk1_p[step], nodes['snn1'], nodes['snn2'], 32, offset=200, spread=800)
+                inject_layer(spk2_p[step], nodes['snn2'], nodes['output'], 10, offset=1200, spread=100)
 
     draw_dashboard_compat("Ejecutando Simulación Ciclo-a-Ciclo...", 0.85, args)
     network.runSimulation()
