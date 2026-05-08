@@ -41,13 +41,14 @@ TECH = {
     "static_power_uw": 1.2
 }
 def parse_args():
-    parser = argparse.ArgumentParser(description="NoC-AER Simulator Industrial Edition")
+    parser = argparse.ArgumentParser(description="NoC-AER Simulator")
     parser.add_argument("--dim", type=int, default=4, help="Dimensión de la malla NoC (ej. 4 para 4x4)")
     parser.add_argument("--buffer", type=int, default=4096, help="Tamaño del buffer de los routers")
     parser.add_argument("--epochs", type=int, default=1, help="Épocas de entrenamiento")
     parser.add_argument("--iters", type=int, default=20, help="Iteraciones por época")
     parser.add_argument("--samples", type=int, default=1, help="Muestras para simulación NoC")
     parser.add_argument("--lr", type=float, default=2e-3, help="Tasa de aprendizaje")
+    parser.add_argument("--video_name", type=str, default="noc_traffic", help="Nombre del archivo de video de salida")
     return parser.parse_args()
 
 def set_determinism(seed=42):
@@ -376,7 +377,8 @@ def main_compat():
         plt.close()
         frame_idx += 1
 
-    generate_simulation_video(frames_dir, f"noc_mesh_dim{args.dim}.mp4")
+    # Al final de main_compat, usa el nombre pasado por argumento
+    generate_simulation_video(frames_dir, f"{args.video_name}.mp4")
     if os.path.exists(frames_dir):
         print(f"🧹 Limpiando frames temporales en '{frames_dir}'...")
         shutil.rmtree(frames_dir)
