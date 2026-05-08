@@ -43,6 +43,34 @@ public:
     int getMaxBufferSize() const { return max_buffer_size; }
     void addPendingInjection(Flit flit, uint64_t current_time);
 
+    int getBufferOccupancy() const {
+        int total = 0;
+        for (auto const& [port, queue] : input_buffers) {
+            total += queue.size();
+        }
+        return total;
+    }
+    // Retorna la ocupación individual de cada puerto [LOCAL, NORTH, SOUTH, EAST, WEST]
+    std::vector<int> getDetailedOccupancy() const {
+        std::vector<int> detailed(NUM_PORTS);
+        for (int i = 0; i < NUM_PORTS; ++i) {
+            detailed[i] = input_buffers.at(static_cast<Port>(i)).size();
+        }
+        return detailed;
+    }
+
+    // Retorna si un enlace está en 'Stall' (tiene datos pero no tiene créditos para enviar)
+    std::vector<bool> getLinkStallStatus() const {
+        std::vector<bool> stalls(NUM_PORTS, false);
+        for (int i = 1; i < NUM_PORTS; ++i) { // Empezamos en 1 para saltar el puerto LOCAL
+            Port p = static_cast<Port>(i);
+            if (!input_buffers.at(p).empty() && downstream_credits.at(p) <= 0) {
+                stalls[i] = true;
+            }
+        }
+        return stalls;
+    }
+
 private:
     int id;
     int x_coord;

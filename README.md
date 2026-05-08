@@ -61,7 +61,10 @@ Antes de empezar, asegúrate de tener instalado:
 2. **Instalar dependencias de Python:**
    ```bash
    pip install --upgrade pip
-   pip install torch snntorch tonic pybind11 numpy
+   pip install torch snntorch tonic pybind11 
+   pip install networkx
+   # Nota: Tonic requiere numpy < 2.0.0, y OpenCV < 4.9 es compatible con numpy 1.x
+   pip install "numpy<2.0.0" "opencv-python<4.9" matplotlib seaborn
    ```
 
 3. **Compilar el motor de simulación (C++):**

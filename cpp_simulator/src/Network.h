@@ -14,6 +14,8 @@ public:
     void addRouter(int id, int x, int y);
     Router* getRouter(int id);
     void runSimulation();
+    void stepSimulation(int num_events);
+    void handleEvent(const Event& event);
 
     // Aggregate Metrics
     uint64_t getTotalFlitsInjected() const;

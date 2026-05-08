@@ -76,7 +76,10 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getAvgLatency", &Router::getAvgLatency)
         .def("getLatencyJitter", &Router::getLatencyJitter)
         .def("setMaxBufferSize", &Router::setMaxBufferSize)
-        .def("getMaxBufferSize", &Router::getMaxBufferSize);
+        .def("getMaxBufferSize", &Router::getMaxBufferSize)
+        .def("getBufferOccupancy", &Router::getBufferOccupancy)
+        .def("getDetailedOccupancy", &Router::getDetailedOccupancy)
+        .def("getLinkStallStatus", &Router::getLinkStallStatus);
 
     py::class_<Network>(m, "Network")
         .def(py::init<int, int, EventQueue&>(),
@@ -90,5 +93,8 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getAvgLatency", &Network::getAvgLatency)
         .def("getAvgJitter", &Network::getAvgJitter)
         .def("getSimulationTime", &Network::getSimulationTime)
-        .def("getTotalForwarded", &Network::getTotalForwarded);
+        .def("getTotalForwarded", &Network::getTotalForwarded)
+        .def("stepSimulation", &Network::stepSimulation);
+
+
 }

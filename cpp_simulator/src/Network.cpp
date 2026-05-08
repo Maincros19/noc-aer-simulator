@@ -33,41 +33,50 @@ Router* Network::getRouter(int id) {
     return nullptr;
 }
 
+// Función auxiliar para procesar un solo evento (Lógica unificada)
+void Network::handleEvent(const Event& event) {
+    uint64_t current_time = event.timestamp;
+    current_sim_time = current_time;
+    Router* router = getRouter(event.source_router_id);
+
+    if (router) {
+        if (event.type == FLIT_ARRIVAL) {
+            int src_id = event.flit.current_router_id;
+            int dst_id = event.source_router_id;
+
+            Port in_port = LOCAL;
+            if (src_id == dst_id - dim_x) in_port = NORTH;
+            else if (src_id == dst_id + dim_x) in_port = SOUTH;
+            else if (src_id == dst_id + 1) in_port = EAST;
+            else if (src_id == dst_id - 1) in_port = WEST;
+
+            router->receiveFlit(event.flit, in_port, current_time);
+        } else if (event.type == ROUTER_PROCESSING) {
+            router->processFlit(current_time);
+        } else if (event.type == CREDIT_ARRIVAL) {
+            router->receiveCredit(event.port);
+            if (!router->isProcessingScheduled()) {
+                event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, router->getId(), router->getId()));
+                router->setProcessingScheduled(true);
+            }
+        } else if (event.type == SOURCE_INJECTION) {
+            router->addPendingInjection(event.flit, current_time);
+        }
+    }
+}
+
+// Ahora runSimulation y stepSimulation son muy simples:
 void Network::runSimulation() {
     while (!event_queue.isEmpty()) {
-        Event event = event_queue.getNextEvent();
-        uint64_t current_time = event.timestamp;
-        current_sim_time = current_time;
-        Router* router = getRouter(event.source_router_id);
+        handleEvent(event_queue.getNextEvent());
+    }
+}
 
-        if (router) {
-            if (event.type == FLIT_ARRIVAL) {
-                int src_id = event.flit.current_router_id;
-                int dst_id = event.source_router_id;
-                
-                Port in_port = LOCAL;
-                if (src_id == dst_id - dim_x) in_port = NORTH;
-                else if (src_id == dst_id + dim_x) in_port = SOUTH;
-                else if (src_id == dst_id + 1) in_port = EAST;
-                else if (src_id == dst_id - 1) in_port = WEST;
-                
-                router->receiveFlit(event.flit, in_port, current_time); 
-            } else if (event.type == ROUTER_PROCESSING) {
-                router->processFlit(current_time);
-            } else if (event.type == CREDIT_ARRIVAL) {
-                router->receiveCredit(event.port);
-                // Solo reprogramamos si no hay ya una tarea pendiente para este router
-                // Usamos un getter o accedemos directamente si es posible
-                if (!router->isProcessingScheduled()) {
-                    event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, router->getId(), router->getId()));
-                    router->setProcessingScheduled(true);
-                }
-            } else if (event.type == SOURCE_INJECTION) {
-                // El software deposita el paquete en la RAM del nodo.
-                // Se inyectará orgánicamente ciclo a ciclo.
-                router->addPendingInjection(event.flit, current_time);
-            }
-        }
+void Network::stepSimulation(int num_events) {
+    int processed = 0;
+    while (!event_queue.isEmpty() && processed < num_events) {
+        handleEvent(event_queue.getNextEvent());
+        processed++;
     }
 }
 
