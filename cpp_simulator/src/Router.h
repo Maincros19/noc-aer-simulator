@@ -29,6 +29,8 @@ public:
     uint64_t getFlitsForwarded() const { return flits_forwarded; }
     double getTotalLatency() const { return total_latency; }
     double getTotalLatencySq() const { return total_latency_sq; }
+    double getTotalInjectionLatency() const { return total_injection_latency; }
+    double getTotalNetworkLatency() const { return total_network_latency; }
     
     double getAvgLatency() const { return flits_received > 0 ? (double)total_latency / flits_received : 0; }
     double getLatencyJitter() const { 
@@ -93,8 +95,10 @@ private:
     uint64_t flits_received;  // Contador de flits que llegaron a su destino (LOCAL)
     uint64_t flits_injected;  // Contador de flits inyectados localmente
     uint64_t flits_forwarded; // Contador de flits procesados (para energía dinámica)
-    double total_latency;   // Suma de latencias
+    double total_latency;   // Suma de latencias (E2E)
     double total_latency_sq; // Suma de latencias al cuadrado (para jitter)
+    double total_injection_latency; // NUEVO
+    double total_network_latency;   // NUEVO
 
     // Lógica de ruteo
     Port routeFlit(const Flit& flit);

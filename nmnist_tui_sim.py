@@ -185,7 +185,9 @@ def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
         print("\n +-- RESULTADOS HARDWARE -------------------------------------")
         print(f" | Spikes Gen:    {metrics.get('spikes', 0):,}")
         print(f" | Flits NoC:     {metrics.get('flits', 0):,}")
-        print(f" | Latencia Med:  {metrics.get('latency', 0):.2f} ciclos")
+        print(f" | Lat. Total:    {metrics.get('latency', 0):.2f} ciclos (End-to-End)")
+        print(f" |  ├─ Inyección: {metrics.get('inj_latency', 0):.2f} ciclos (Cola origen)")
+        print(f" |  └─ Red:       {metrics.get('net_latency', 0):.2f} ciclos (Vuelo y saltos)")
         print(f" | Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
         print(f" | Throughput:    {metrics.get('throughput', 0):.6f} flits/ciclo/nodo")
         print(f" | Energia Total: {metrics.get('energy', 0):.6f} uJ")
@@ -398,7 +400,10 @@ def main_compat():
     temporal_perf = flit_id / total_time_seconds if total_time_seconds > 0 else 0
 
     metrics = {
-        "spikes": total_spikes, "flits": flit_id, "latency": network.getAvgLatency(),
+        "spikes": total_spikes, "flits": flit_id,
+        "latency": network.getAvgLatency(),
+        "inj_latency": network.getAvgInjectionLatency(), # NUEVO
+        "net_latency": network.getAvgNetworkLatency(),   # NUEVO
         "jitter": network.getAvgJitter(), "energy": total_energy_uj, "accuracy": acc,
         "energy_eff": energy_eff, "temporal_perf": temporal_perf,
         "throughput": (network.getTotalFlitsReceived() / sim_t) / (args.dim**2) if sim_t > 0 else 0,

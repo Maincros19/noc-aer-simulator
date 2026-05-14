@@ -136,3 +136,22 @@ uint64_t Network::getTotalForwarded() const {
     for (auto const& [id, router] : routers) total += router->getFlitsForwarded();
     return total;
 }
+double Network::getAvgInjectionLatency() const {
+    double total_inj_sum = 0;
+    uint64_t total_rec = 0;
+    for (auto const& [id, router] : routers) {
+        total_inj_sum += router->getTotalInjectionLatency();
+        total_rec += router->getFlitsReceived();
+    }
+    return total_rec > 0 ? total_inj_sum / total_rec : 0;
+}
+
+double Network::getAvgNetworkLatency() const {
+    double total_net_sum = 0;
+    uint64_t total_rec = 0;
+    for (auto const& [id, router] : routers) {
+        total_net_sum += router->getTotalNetworkLatency();
+        total_rec += router->getFlitsReceived();
+    }
+    return total_rec > 0 ? total_net_sum / total_rec : 0;
+}

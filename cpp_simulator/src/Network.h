@@ -23,6 +23,8 @@ public:
     uint64_t getTotalFlitsDropped() const;
     double getAvgLatency() const;
     double getAvgJitter() const;
+    double getAvgInjectionLatency() const; // NUEVO
+    double getAvgNetworkLatency() const;   // NUEVO
     uint64_t getSimulationTime() const;
     uint64_t getTotalForwarded() const;
 

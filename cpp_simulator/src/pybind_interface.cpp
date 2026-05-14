@@ -43,7 +43,8 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def_readwrite("source_router_id", &Flit::source_router_id)
         .def_readwrite("dest_router_id", &Flit::dest_router_id)
         .def_readwrite("current_router_id", &Flit::current_router_id)
-        .def_readwrite("injection_time", &Flit::injection_time);
+        .def_readwrite("injection_time", &Flit::injection_time)
+        .def_readwrite("network_entry_time", &Flit::network_entry_time); // NUEVO
 
     py::class_<Event>(m, "Event")
         .def(py::init<uint64_t, EventType, int, int, Flit, Port>(),
@@ -92,10 +93,13 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getTotalFlitsReceived", &Network::getTotalFlitsReceived)
         .def("getTotalFlitsDropped", &Network::getTotalFlitsDropped)
         .def("getAvgLatency", &Network::getAvgLatency)
+        .def("getAvgInjectionLatency", &Network::getAvgInjectionLatency) // NUEVO
+        .def("getAvgNetworkLatency", &Network::getAvgNetworkLatency)     // NUEVO
         .def("getAvgJitter", &Network::getAvgJitter)
         .def("getSimulationTime", &Network::getSimulationTime)
         .def("getTotalForwarded", &Network::getTotalForwarded)
         .def("stepSimulation", &Network::stepSimulation);
+
 
 
 }

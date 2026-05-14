@@ -6,7 +6,7 @@ Router::Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq)
     : id(id), x_coord(x), y_coord(y), dim_x(dim_x), dim_y(dim_y), event_queue(eq),
       max_injection_buffer_size(1024), max_network_buffer_size(32), last_arbitrated_port(WEST), is_processing_scheduled(false),
       flits_dropped(0), flits_received(0), flits_injected(0), flits_forwarded(0),
-      total_latency(0), total_latency_sq(0) {
+      total_latency(0), total_latency_sq(0), total_injection_latency(0), total_network_latency(0) {
     for (int i = 0; i < NUM_PORTS; ++i) {
         input_buffers[static_cast<Port>(i)] = std::queue<Flit>();
 
@@ -69,6 +69,13 @@ void Router::processFlit(uint64_t current_time) {
     // Si llegamos aquí, hay espacio físico en el vecino.
     input_buffers[in_port].pop();
     if (out_port != LOCAL) downstream_credits[out_port]--;
+
+    // --- NUEVO: MARCAR ENTRADA A RED ---
+    // Si el flit viene del puerto LOCAL (inyección), guardamos el ciclo exacto
+    // en el que logra salir a la malla.
+    if (in_port == LOCAL) {
+        flit.network_entry_time = current_time;
+    }
 
     flits_forwarded++;
 
@@ -140,6 +147,15 @@ void Router::switchFlit(Flit flit, Port out_port, uint64_t current_time) {
             uint64_t lat = (current_time > flit.injection_time) ? (current_time - flit.injection_time) : 1;
             total_latency += lat;
             total_latency_sq += (lat * lat);
+
+            // --- NUEVO: CÁLCULO DESGLOSADO DE LATENCIAS ---
+            // Latencia de red: Tiempo desde que salió del nodo origen hasta ahora
+            uint64_t net_lat = (current_time > flit.network_entry_time) ? (current_time - flit.network_entry_time) : 0;
+            // Latencia de inyección: Tiempo desde que se generó hasta que logró salir del nodo origen
+            uint64_t inj_lat = (flit.network_entry_time >= flit.injection_time) ? (flit.network_entry_time - flit.injection_time) : 0;
+
+            total_network_latency += net_lat;
+            total_injection_latency += inj_lat;
         }
     } else {
         int next_router_id = -1;

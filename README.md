@@ -114,9 +114,11 @@ Una vez compilado, puedes lanzar experimentos directamente desde la terminal. El
 ## 📜 Documentación Técnica
 
 Para un análisis profundo, consulta los informes en la carpeta `./documentacion`:
-- 📄 Análisis del Fan-out AER: Impacto de la divergencia de flits.
-- ⚙️ Arquitectura de Ruteo: Detalles del ruteo XY y arbitraje.
-- ⚡ Modelo de Energía: Cálculos basados en tecnología 22nm FD-SOI.
+
+- 📄 **Análisis del Fan-out AER:** Impacto de la divergencia de flits.
+- ⚙️ **Arquitectura de Ruteo:** Detalles del ruteo XY y arbitraje.
+- ⚡ **Modelo de Energía:** Cálculos basados en tecnología 22nm FD-SOI.
+- ⏱️ **Latencia Base (Zero-Load):** Cálculo teórico del límite físico de la red y el cauce hardware.
 
 ## 📜 Licencia y Contacto
 
