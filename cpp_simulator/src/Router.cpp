@@ -4,12 +4,18 @@
 
 Router::Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq)
     : id(id), x_coord(x), y_coord(y), dim_x(dim_x), dim_y(dim_y), event_queue(eq),
-      max_buffer_size(1024), last_arbitrated_port(WEST), is_processing_scheduled(false),
+      max_injection_buffer_size(1024), max_network_buffer_size(32), last_arbitrated_port(WEST), is_processing_scheduled(false),
       flits_dropped(0), flits_received(0), flits_injected(0), flits_forwarded(0),
       total_latency(0), total_latency_sq(0) {
     for (int i = 0; i < NUM_PORTS; ++i) {
         input_buffers[static_cast<Port>(i)] = std::queue<Flit>();
-        downstream_credits[static_cast<Port>(i)] = max_buffer_size;
+
+        // Asignar el tamaño de crédito correcto según el tipo de puerto
+        if (i == LOCAL) {
+            downstream_credits[static_cast<Port>(i)] = max_injection_buffer_size;
+        } else {
+            downstream_credits[static_cast<Port>(i)] = max_network_buffer_size;
+        }
     }
 }
 
@@ -38,7 +44,7 @@ void Router::processFlit(uint64_t current_time) {
 
     // --- NUEVO: HARDWARE DMA INJECTION ---
     // Transferimos 1 paquete por ciclo de la RAM al Búfer Físico (si hay espacio)
-    if (!pending_injections.empty() && input_buffers[LOCAL].size() < max_buffer_size) {
+    if (!pending_injections.empty() && input_buffers[LOCAL].size() < max_injection_buffer_size) {
         input_buffers[LOCAL].push(pending_injections.front());
         pending_injections.pop();
     }
@@ -148,17 +154,22 @@ void Router::switchFlit(Flit flit, Port out_port, uint64_t current_time) {
         }
     }
 }
-void Router::setMaxBufferSize(int size) {
-    max_buffer_size = size;
-    // Sincronizamos los créditos de todos los puertos con el nuevo tamaño
+void Router::setBufferSizes(int inj_size, int net_size) {
+    max_injection_buffer_size = inj_size;
+    max_network_buffer_size = net_size;
+
+    // Sincronizamos los créditos: LOCAL tiene el tamaño de inyección, el resto el de red
     for (int i = 0; i < NUM_PORTS; ++i) {
-        downstream_credits[static_cast<Port>(i)] = size;
+        if (i == LOCAL) {
+            downstream_credits[static_cast<Port>(i)] = max_injection_buffer_size;
+        } else {
+            downstream_credits[static_cast<Port>(i)] = max_network_buffer_size;
+        }
     }
 }
 
 bool Router::canAcceptLocalFlit() {
-    // Comprueba si el buffer del puerto LOCAL tiene espacio disponible
-    return input_buffers[LOCAL].size() < max_buffer_size;
+    return input_buffers[LOCAL].size() < max_injection_buffer_size;
 }
 void Router::addPendingInjection(Flit flit, uint64_t current_time) {
     pending_injections.push(flit);

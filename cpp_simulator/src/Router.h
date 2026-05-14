@@ -38,9 +38,10 @@ public:
         return std::sqrt(std::max(0.0, variance));
     }
 
-    void setMaxBufferSize(int size);
+    void setBufferSizes(int inj_size, int net_size);
     bool canAcceptLocalFlit();
-    int getMaxBufferSize() const { return max_buffer_size; }
+    int getInjectionBufferSize() const { return max_injection_buffer_size; }
+    int getNetworkBufferSize() const { return max_network_buffer_size; }
     void addPendingInjection(Flit flit, uint64_t current_time);
 
     int getBufferOccupancy() const {
@@ -78,7 +79,8 @@ private:
     int dim_x;
     int dim_y;
     EventQueue& event_queue;
-    int max_buffer_size;
+    int max_injection_buffer_size;
+    int max_network_buffer_size;
 
     // Buffers de entrada para cada puerto
     std::map<Port, std::queue<Flit>> input_buffers;

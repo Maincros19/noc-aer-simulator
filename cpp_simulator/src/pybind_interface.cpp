@@ -75,8 +75,9 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getFlitsForwarded", &Router::getFlitsForwarded)
         .def("getAvgLatency", &Router::getAvgLatency)
         .def("getLatencyJitter", &Router::getLatencyJitter)
-        .def("setMaxBufferSize", &Router::setMaxBufferSize)
-        .def("getMaxBufferSize", &Router::getMaxBufferSize)
+        .def("setBufferSizes", &Router::setBufferSizes)
+        .def("getInjectionBufferSize", &Router::getInjectionBufferSize)
+        .def("getNetworkBufferSize", &Router::getNetworkBufferSize)
         .def("getBufferOccupancy", &Router::getBufferOccupancy)
         .def("getDetailedOccupancy", &Router::getDetailedOccupancy)
         .def("getLinkStallStatus", &Router::getLinkStallStatus);

@@ -43,7 +43,8 @@ TECH = {
 def parse_args():
     parser = argparse.ArgumentParser(description="NoC-AER Simulator")
     parser.add_argument("--dim", type=int, default=4, help="Dimensión de la malla NoC (ej. 4 para 4x4)")
-    parser.add_argument("--buffer", type=int, default=4096, help="Tamaño del buffer de los routers")
+    parser.add_argument("--inj_buffer", type=int, default=1024, help="Tamaño del buffer de inyección (LOCAL)")
+    parser.add_argument("--net_buffer", type=int, default=32, help="Tamaño del buffer de red (N, S, E, W)")
     parser.add_argument("--epochs", type=int, default=1, help="Épocas de entrenamiento")
     parser.add_argument("--iters", type=int, default=20, help="Iteraciones por época")
     parser.add_argument("--samples", type=int, default=1, help="Muestras para simulación NoC")
@@ -267,7 +268,7 @@ def main_compat():
     event_queue = ncs.EventQueue()
     network = ncs.Network(args.dim, args.dim, event_queue)
     for r in range(args.dim * args.dim):
-        network.getRouter(r).setMaxBufferSize(args.buffer)
+        network.getRouter(r).setBufferSizes(args.inj_buffer, args.net_buffer)
 
     # --- 2. INYECCIÓN DE TRÁFICO (Basado en la inferencia de la SNN) ---
     flit_id, total_spikes = 0, 0
@@ -301,8 +302,8 @@ def main_compat():
 
     # --- 3. MONITOR AVANZADO DE TOPOLOGÍA Y BUFFERS ---
 
-    draw_dashboard_compat("Generando Monitor de Enlaces y Buffers...", 0.85, args)
-
+    draw_dashboard_compat("Simulando trafico de la red", 0.85, args)
+    """ GENERACION DE MAPA DE CALOR DESACTIVADO MOMENTANEAMENTE
     frames_dir = "sim_frames"
     if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
     os.makedirs(frames_dir)
@@ -383,6 +384,11 @@ def main_compat():
         print(f"🧹 Limpiando frames temporales en '{frames_dir}'...")
         shutil.rmtree(frames_dir)
         print("✅ Carpeta de frames eliminada.")
+    """
+
+    # EJECUCION DE LA SIMULACION SIN GENERACION DE MAPA DE CALOR
+    network.runSimulation()
+
     # --- Métricas Finales (Cálculos originales) ---
     sim_t = network.getSimulationTime()
     period_ns = 1000.0 / TECH['f_max_mhz']
