@@ -164,37 +164,62 @@ def get_node_mapping(dim):
         "output": list(range(nodes_per_layer * 3, total_nodes))
     }
 
+# Variable global para saber cuántas líneas tenemos que retroceder el cursor
+lineas_impresas = 0
+
 def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
-    os.system('clear' if os.name == 'posix' else 'cls')
+    global lineas_impresas
+
+    out = []
     width = 75
-    print("\n" + f" [ NoC-AER SIMULATOR: Malla {args.dim}x{args.dim} ] ".center(width, "="))
-    print(f"\n FASE: {phase}")
+    out.append(f" [ NoC-AER SIMULATOR: Malla {args.dim}x{args.dim} ] ".center(width, "="))
+    out.append("") # Línea en blanco en lugar de \n
+    out.append(f" FASE: {phase}")
 
     bar_w = 40
     filled = int(bar_w * progress)
     bar = "█" * filled + "░" * (bar_w - filled)
-    print(f" PROGRESO: [{bar}] {progress*100:.1f}%")
+    out.append(f" PROGRESO: [{bar}] {progress*100:.1f}%")
 
     if train_info:
-        print("\n +-- ENTRENAMIENTO -------------------------------------------")
-        print(f" | Epoca: {train_info.get('epoch')} | Iter: {train_info.get('iter')}/{args.iters}")
-        print(f" | Loss: {train_info.get('loss', 0):.4f} | Acc: {train_info.get('acc', 0):.2f}%")
-        print(" +------------------------------------------------------------")
+        out.append("")
+        out.append(" +-- ENTRENAMIENTO -------------------------------------------")
+        out.append(f" | Epoca: {train_info.get('epoch')} | Iter: {train_info.get('iter')}/{args.iters}")
+        out.append(f" | Loss: {train_info.get('loss', 0):.4f} | Acc: {train_info.get('acc', 0):.2f}%")
+        out.append(" +------------------------------------------------------------")
 
     if metrics:
-        print("\n +-- RESULTADOS HARDWARE -------------------------------------")
-        print(f" | Spikes Gen:    {metrics.get('spikes', 0):,}")
-        print(f" | Flits NoC:     {metrics.get('flits', 0):,}")
-        print(f" | Lat. Total:    {metrics.get('latency', 0):.2f} ciclos (End-to-End)")
-        print(f" |  ├─ Inyección: {metrics.get('inj_latency', 0):.2f} ciclos (Cola origen)")
-        print(f" |  └─ Red:       {metrics.get('net_latency', 0):.2f} ciclos (Vuelo y saltos)")
-        print(f" | Jitter (AER):  {metrics.get('jitter', 0):.2f} ciclos")
-        print(f" | Throughput:    {metrics.get('throughput', 0):.6f} flits/ciclo/nodo")
-        print(f" | Energia Total: {metrics.get('energy', 0):.6f} uJ")
-        print(f" | Eficiencia:    {metrics.get('energy_eff', 0):,.2f} flits/uJ")
-        print(f" | Rendimiento:   {metrics.get('temporal_perf', 0):,.0f} flits/segundo")
-        print(" +------------------------------------------------------------")
-        print(f"\n PRECISION IA FINAL:  {metrics.get('accuracy', 0):.2f}%")
+        out.append("")
+        out.append(" +-- RESULTADOS HARDWARE -------------------------------------")
+        out.append(f" | Spikes Gen:       {metrics.get('spikes', 0):,}")
+        out.append(f" | Flits Generados:  {metrics.get('flits_generados', 0):,} (Producidos por SNN)")
+        out.append(f" | Flits Inyectados: {metrics.get('flits_inyectados', 0):,} (Enviados al nodo origen)")
+        out.append(f" | Flits Eyectados:  {metrics.get('flits_eyectados', 0):,} (Recibidos en destino)")
+        out.append(f" | Flits Procesados: {metrics.get('flits_procesados', 0):,} (Total de saltos/ruteos)")
+        out.append(f" | Lat. Total:       {metrics.get('latency', 0):.2f} ciclos (End-to-End)")
+        out.append(f" |  ├─ Inyección:    {metrics.get('inj_latency', 0):.2f} ciclos (Cola origen)")
+        out.append(f" |  └─ Red:          {metrics.get('net_latency', 0):.2f} ciclos (Vuelo y saltos)")
+        out.append(f" | Jitter (AER):     {metrics.get('jitter', 0):.2f} ciclos")
+        out.append(f" | Throughput:       {metrics.get('throughput', 0):.6f} flits/ciclo/nodo")
+        out.append(f" | Energia Total:    {metrics.get('energy', 0):.6f} uJ")
+        out.append(f" | Eficiencia:       {metrics.get('energy_eff', 0):,.2f} flits/uJ")
+        out.append(f" | Throughput Físico:{metrics.get('temporal_perf', 0):,.0f} flits/s")
+        out.append(" +------------------------------------------------------------")
+        out.append("")
+        out.append(f" PRECISION IA FINAL:  {metrics.get('accuracy', 0):.2f}%")
+
+    texto_final = "\n".join(out)
+
+    # Si ya hemos impreso algo antes, subimos el cursor y borramos hacia abajo
+    if lineas_impresas > 0:
+        # \033[{n}A mueve el cursor arriba. \033[J limpia hasta el final
+        sys.stdout.write(f"\033[{lineas_impresas}A\033[J")
+
+    sys.stdout.write(texto_final + "\n")
+    sys.stdout.flush()
+
+    # Ahora la cantidad de líneas generadas coincide perfectamente
+    lineas_impresas = len(out)
 
 def main_compat():
     set_determinism(42)
@@ -389,7 +414,19 @@ def main_compat():
     """
 
     # EJECUCION DE LA SIMULACION SIN GENERACION DE MAPA DE CALOR
-    network.runSimulation()
+    # EJECUCION DINÁMICA DE LA SIMULACION
+    eventos_por_paso = 25000  # Procesamos de 25k en 25k eventos para no saturar el refresco
+    eventos_procesados = 0
+    # Estimación (heurística): cada flit genera aprox 4-6 eventos en la cola
+    eventos_totales_estimados = flit_id * 5
+
+    while not event_queue.isEmpty():
+        network.stepSimulation(eventos_por_paso)
+        eventos_procesados += eventos_por_paso
+
+        # Calculamos que esta fase va del 60% al 98% del progreso total
+        progreso_sim = min(0.98, 0.60 + (eventos_procesados / eventos_totales_estimados) * 0.38)
+        draw_dashboard_compat("Simulando ruteo de flits en malla NoC...", progreso_sim, args)
 
     # --- Métricas Finales (Cálculos originales) ---
     sim_t = network.getSimulationTime()
@@ -400,12 +437,19 @@ def main_compat():
     temporal_perf = flit_id / total_time_seconds if total_time_seconds > 0 else 0
 
     metrics = {
-        "spikes": total_spikes, "flits": flit_id,
+        "spikes": total_spikes,
+        "flits_generados": flit_id, # Creados por la SNN
+        "flits_inyectados": network.getTotalFlitsInjected(), # Entregados al router origen
+        "flits_eyectados": network.getTotalFlitsReceived(),  # Llegaron a su destino
+        "flits_procesados": network.getTotalForwarded(),     # Saltos totales en la red
         "latency": network.getAvgLatency(),
-        "inj_latency": network.getAvgInjectionLatency(), # NUEVO
-        "net_latency": network.getAvgNetworkLatency(),   # NUEVO
-        "jitter": network.getAvgJitter(), "energy": total_energy_uj, "accuracy": acc,
-        "energy_eff": energy_eff, "temporal_perf": temporal_perf,
+        "inj_latency": network.getAvgInjectionLatency(),
+        "net_latency": network.getAvgNetworkLatency(),
+        "jitter": network.getAvgJitter(),
+        "energy": total_energy_uj,
+        "accuracy": acc,
+        "energy_eff": energy_eff,
+        "temporal_perf": temporal_perf,
         "throughput": (network.getTotalFlitsReceived() / sim_t) / (args.dim**2) if sim_t > 0 else 0,
     }
 
