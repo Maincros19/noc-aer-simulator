@@ -9,117 +9,188 @@ DIR_RESULTADOS="resultados_validacion"
 # Crear carpeta de resultados si no existe
 mkdir -p $DIR_RESULTADOS
 
+# Archivo maestro donde se consolidará todo
+CSV_MAESTRO="$DIR_RESULTADOS/reporte_maestro_noc.csv"
+
 echo "=========================================================="
 echo "🚀 INICIANDO BATERÍA DE VALIDACIÓN AVANZADA NoC-AER"
 echo "=========================================================="
-echo "Los resultados se guardarán en: ./$DIR_RESULTADOS/"
+echo "Los resultados se unificarán en: ./$CSV_MAESTRO"
 echo ""
 
-# Función auxiliar para extraer un dato individual
+# Cabecera estándar para el CSV unificado
+STD_HEADER="Fase,Escenario,Dim_Malla,Buffer,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Iny,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s"
+echo "$STD_HEADER" > "$CSV_MAESTRO"
+
+# ==========================================
+# FUNCIONES DE EXTRACCIÓN
+# ==========================================
+
 extraer_metrica() {
     local metrica=$1
     local columna=$2
-    grep "$metrica" $TMP_FILE | awk -v col="$columna" '{print $col}' | tr -d ',' | tr -d '%'
+    grep "$metrica" "$TMP_FILE" | awk -v col="$columna" '{print $col}' | tr -d ',' | tr -d '%'
 }
 
-# Función para extraer TODAS las métricas en formato CSV
-extraer_todas_las_metricas() {
+extraer_rendimiento() {
+    grep -E "Rendimiento:|Throughput Físico:|Tasa Absoluta:" "$TMP_FILE" | awk '{print $(NF-1)}' | tr -d ','
+}
+
+guardar_metricas() {
+    local FASE=$1
+    local ESCENARIO=$2
+    local DIM=$3
+    local BUF=$4
+    local MUESTRAS=$5
+    local TIEMPO_TEST=$6
+
     SPK=$(extraer_metrica "Spikes Gen:" 4)
-    FLITS=$(extraer_metrica "Flits NoC:" 4)
-    LAT=$(extraer_metrica "Lat. Total:" 4)
+    FLITS_GEN=$(extraer_metrica "Flits Generados:" 4)
+    FLITS_INY=$(extraer_metrica "Flits Inyectados:" 4)
+    FLITS_EYE=$(extraer_metrica "Flits Eyectados:" 4)
+    FLITS_PRO=$(extraer_metrica "Flits Procesados:" 4)
+
+    LAT_TOT=$(extraer_metrica "Lat. Total:" 4)
+    LAT_INY=$(extraer_metrica "Inyección:" 4)
+    LAT_RED=$(extraer_metrica "Red:" 4)
     JIT=$(extraer_metrica "Jitter (AER):" 4)
+
     THR=$(extraer_metrica "Throughput:" 3)
     ENG=$(extraer_metrica "Energia Total:" 4)
     EFI=$(extraer_metrica "Eficiencia:" 3)
-    RND=$(extraer_metrica "Rendimiento:" 3)
+
+    RND=$(extraer_rendimiento)
     ACC=$(extraer_metrica "PRECISION IA FINAL:" 4)
 
-    if [ -z "$LAT" ]; then
-        echo "NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN"
+    if [ -z "$LAT_TOT" ]; then
+        echo "$FASE,$ESCENARIO,$DIM,$BUF,$MUESTRAS,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,$TIEMPO_TEST" >> "$CSV_MAESTRO"
     else
-        echo "$SPK,$FLITS,$LAT,$JIT,$THR,$ENG,$EFI,$RND,$ACC"
+        echo "$FASE,$ESCENARIO,$DIM,$BUF,$MUESTRAS,$SPK,$FLITS_GEN,$FLITS_INY,$FLITS_EYE,$FLITS_PRO,$LAT_TOT,$LAT_INY,$LAT_RED,$JIT,$THR,$ENG,$EFI,$RND,$ACC,$TIEMPO_TEST" >> "$CSV_MAESTRO"
     fi
 }
-
-# Cabecera estándar para todos los CSV
-STD_HEADER="Spikes_Gen,Flits_NoC,Latencia_Media,Jitter,Throughput,Energia_Total_uJ,Eficiencia_flits_uJ,Rendimiento_flits_s,Precision_IA"
 
 # ==========================================
 # FASE 1: REGRESIÓN (DETERMINISMO)
 # ==========================================
 echo "▶ FASE 1: Comprobando Determinismo (3 ejecuciones)..."
 for i in {1..3}; do
-    python3 nmnist_tui_sim.py --dim 4 --epochs 1 --samples 1 --inj_buffer 4096 --net_buffer 4096 > $TMP_FILE 2>&1
-    LAT=$(extraer_metrica "Lat. Total:" 4)
-    SPIKES=$(extraer_metrica "Spikes Gen:" 4)
-    echo "  Ejecución $i -> Spikes: $SPIKES | Latencia: $LAT"
-done
-echo "----------------------------------------------------------"
-
-# ==========================================
-# FASE 2: ESTRÉS Y CONGESTIÓN (BÚFER)
-# ==========================================
-CSV_BUFFER="$DIR_RESULTADOS/test_2_congestion_buffer.csv"
-echo "Buffer,$STD_HEADER" > $CSV_BUFFER
-BUFFERS=(1024 256 64 16)
-
-echo "▶ FASE 2: Prueba de Contrapresión (Reduciendo Buffer)..."
-for BUF in "${BUFFERS[@]}"; do
-    echo -n "  Simulando Buffers a $BUF... "
-    python3 nmnist_tui_sim.py --dim 4 --samples 2 --inj_buffer $BUF --net_buffer $BUF > $TMP_FILE 2>&1
-
-    ALL_METRICS=$(extraer_todas_las_metricas)
-    LAT=$(echo "$ALL_METRICS" | cut -d',' -f3)
-    echo "OK! (Lat: $LAT)"
-    echo "$BUF,$ALL_METRICS" >> $CSV_BUFFER
-    done
-echo "----------------------------------------------------------"
-
-# ==========================================
-# FASE 3: ESCALABILIDAD (TAMAÑOS DE MALLA)
-# ==========================================
-CSV_DIM="$DIR_RESULTADOS/test_3_escalabilidad_dim.csv"
-echo "Dimension,Nodos_Totales,$STD_HEADER" > $CSV_DIM
-DIMS=(2 4 6)
-
-echo "▶ FASE 3: Escalabilidad Topológica (Aumentando Malla)..."
-for DIM in "${DIMS[@]}"; do
-    echo -n "  Simulando Malla ${DIM}x${DIM}... "
-    python3 nmnist_tui_sim.py --dim $DIM --samples 2 --inj_buffer 512 --net_buffer 512 > $TMP_FILE 2>&1
-
-    NODOS=$((DIM * DIM))
-    ALL_METRICS=$(extraer_todas_las_metricas)
-    LAT=$(echo "$ALL_METRICS" | cut -d',' -f3)
-    echo "OK! (Lat: $LAT)"
-    echo "$DIM,$NODOS,$ALL_METRICS" >> $CSV_DIM
-done
-echo "----------------------------------------------------------"
-
-# ==========================================
-# FASE 4: IMPACTO DEL VOLUMEN DE MUESTRAS
-# ==========================================
-CSV_SAMPLES="$DIR_RESULTADOS/test_4_impacto_muestras.csv"
-echo "Muestras,Tiempo_Ejecucion_s,$STD_HEADER" > $CSV_SAMPLES
-SAMPLES_ARRAY=(1 5 10)
-
-echo "▶ FASE 4: Impacto del Volumen de Datos..."
-for S in "${SAMPLES_ARRAY[@]}"; do
-    echo -n "  Inyectando $S muestras... "
     START_TIME=$(date +%s)
-    python3 nmnist_tui_sim.py --dim 4 --epochs 1 --iters 10 --samples $S --inj_buffer 1024 --net_buffer 1024 > $TMP_FILE 2>&1
+    python3 nmnist_tui_sim.py --dim 4 --epochs 1 --samples 1 --inj_buffer 4096 --net_buffer 4096 > "$TMP_FILE" 2>&1
     END_TIME=$(date +%s)
     TIEMPO=$((END_TIME - START_TIME))
 
-    ALL_METRICS=$(extraer_todas_las_metricas)
-    FLITS=$(echo "$ALL_METRICS" | cut -d',' -f2)
-    echo "OK! (Flits: $FLITS)"
-    echo "$S,$TIEMPO,$ALL_METRICS" >> $CSV_SAMPLES
+    LAT=$(extraer_metrica "Lat. Total:" 4)
+    SPIKES=$(extraer_metrica "Spikes Gen:" 4)
+    echo "  Ejecución $i -> Spikes: $SPIKES | Latencia: $LAT"
+
+    guardar_metricas "1_Regresion" "Determinismo_$i" 4 4096 1 $TIEMPO
 done
 echo "----------------------------------------------------------"
 
-# Limpieza final de archivos temporales de texto
-rm -f $TMP_FILE
+# ==========================================
+# FASE 2: ESTRÉS Y CONGESTIÓN SIMÉTRICA
+# ==========================================
+BUFFERS=(1024 256 64 16)
+echo "▶ FASE 2: Prueba de Contrapresión (Buffers Simétricos)..."
+for BUF in "${BUFFERS[@]}"; do
+    echo -n "  Simulando Buffers a $BUF... "
+    START_TIME=$(date +%s)
+    python3 nmnist_tui_sim.py --dim 4 --samples 2 --inj_buffer $BUF --net_buffer $BUF > "$TMP_FILE" 2>&1
+    END_TIME=$(date +%s)
+    TIEMPO=$((END_TIME - START_TIME))
+
+    LAT=$(extraer_metrica "Lat. Total:" 4)
+    echo "OK! (Lat: $LAT)"
+
+    guardar_metricas "2_Congestion" "Buffer_$BUF" 4 $BUF 2 $TIEMPO
+done
+echo "----------------------------------------------------------"
+
+# ==========================================
+# FASE 3: ESCALABILIDAD TOPOLÓGICA
+# ==========================================
+DIMS=(2 4 6)
+echo "▶ FASE 3: Escalabilidad (Aumentando Malla)..."
+for DIM in "${DIMS[@]}"; do
+    echo -n "  Simulando Malla ${DIM}x${DIM}... "
+    START_TIME=$(date +%s)
+    python3 nmnist_tui_sim.py --dim $DIM --samples 2 --inj_buffer 512 --net_buffer 512 > "$TMP_FILE" 2>&1
+    END_TIME=$(date +%s)
+    TIEMPO=$((END_TIME - START_TIME))
+
+    LAT=$(extraer_metrica "Lat. Total:" 4)
+    echo "OK! (Lat: $LAT)"
+
+    guardar_metricas "3_Escalabilidad" "Malla_${DIM}x${DIM}" $DIM 512 2 $TIEMPO
+done
+echo "----------------------------------------------------------"
+
+# ==========================================
+# FASE 4: IMPACTO DEL VOLUMEN DE DATOS
+# ==========================================
+SAMPLES_ARRAY=(1 5 10)
+echo "▶ FASE 4: Impacto del Volumen de Muestras..."
+for S in "${SAMPLES_ARRAY[@]}"; do
+    echo -n "  Inyectando $S muestras... "
+    START_TIME=$(date +%s)
+    python3 nmnist_tui_sim.py --dim 4 --epochs 1 --iters 10 --samples $S --inj_buffer 1024 --net_buffer 1024 > "$TMP_FILE" 2>&1
+    END_TIME=$(date +%s)
+    TIEMPO=$((END_TIME - START_TIME))
+
+    FLITS=$(extraer_metrica "Flits Procesados:" 4)
+    echo "OK! (Flits Procesados: $FLITS)"
+
+    guardar_metricas "4_Impacto_Datos" "Muestras_$S" 4 1024 $S $TIEMPO
+done
+echo "----------------------------------------------------------"
+
+# ==========================================
+# FASE 5: ASIMETRÍA DE BUFFERS (CUELLOS DE BOTELLA)
+# ==========================================
+echo "▶ FASE 5: Asimetría de Buffers (Inyección vs Red)..."
+# Configuraciones: [inj_buffer]:[net_buffer]
+CONFIGS_ASIM=("4096:16" "16:4096" "256:32" "32:256")
+for CONF in "${CONFIGS_ASIM[@]}"; do
+    INJ="${CONF%%:*}"
+    NET="${CONF##*:}"
+    echo -n "  Simulando Inj=$INJ / Net=$NET... "
+
+    START_TIME=$(date +%s)
+    python3 nmnist_tui_sim.py --dim 4 --samples 2 --inj_buffer $INJ --net_buffer $NET > "$TMP_FILE" 2>&1
+    END_TIME=$(date +%s)
+    TIEMPO=$((END_TIME - START_TIME))
+
+    LAT=$(extraer_metrica "Lat. Total:" 4)
+    echo "OK! (Lat: $LAT)"
+
+    guardar_metricas "5_Asimetria" "Inj${INJ}_Net${NET}" 4 "${INJ}_${NET}" 2 $TIEMPO
+done
+echo "----------------------------------------------------------"
+
+# ==========================================
+# FASE 6: IMPACTO DEL ENTRENAMIENTO IA
+# ==========================================
+ITERS_ARRAY=(5 20 50)
+echo "▶ FASE 6: Perfil de Tráfico por Madurez SNN..."
+for ITER in "${ITERS_ARRAY[@]}"; do
+    echo -n "  Entrenando $ITER iteraciones... "
+    START_TIME=$(date +%s)
+    # Dejamos 2 muestras fijas para poder comparar los flits generados justamente
+    python3 nmnist_tui_sim.py --dim 4 --epochs 1 --iters $ITER --samples 2 --inj_buffer 1024 --net_buffer 1024 > "$TMP_FILE" 2>&1
+    END_TIME=$(date +%s)
+    TIEMPO=$((END_TIME - START_TIME))
+
+    SPK=$(extraer_metrica "Spikes Gen:" 4)
+    ACC=$(extraer_metrica "PRECISION IA FINAL:" 4)
+    echo "OK! (Spikes: $SPK | Acc: $ACC%)"
+
+    guardar_metricas "6_Perfil_IA" "Iters_$ITER" 4 1024 2 $TIEMPO
+done
+echo "----------------------------------------------------------"
+
+# Limpieza final
+rm -f "$TMP_FILE"
 
 echo "🎉 ¡VALIDACIÓN INTEGRAL COMPLETADA! 🎉"
-echo "Resultados disponibles en ./$DIR_RESULTADOS/:"
-ls -lh $DIR_RESULTADOS/*.csv
+echo "Todos los datos están listos para análisis en:"
+echo "👉 ./$CSV_MAESTRO"
