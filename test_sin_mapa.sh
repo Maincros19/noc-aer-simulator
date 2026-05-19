@@ -52,10 +52,12 @@ guardar_metricas() {
     FLITS_EYE=$(extraer_metrica "Flits Eyectados:" 4)
     FLITS_PRO=$(extraer_metrica "Flits Procesados:" 4)
 
+    # ... código anterior ...
     LAT_TOT=$(extraer_metrica "Lat. Total:" 4)
-    LAT_RAM=$(extraer_metrica "Cola RAM:" 4)      # Extrae la latencia de software
-    LAT_BUF=$(extraer_metrica "Buffer Loc:" 4)    # Extrae la latencia de hardware
-    LAT_RED=$(extraer_metrica "Red:" 4)
+    LAT_RAM=$(extraer_metrica "Cola RAM:" 5)      # <--- Cambiar de 4 a 5
+    LAT_BUF=$(extraer_metrica "Buffer Loc:" 5)    # <--- Cambiar de 4 a 5
+    LAT_RED=$(extraer_metrica "Red:" 4)           # Este se queda en 4
+    # ... código siguiente ...
 
     JIT=$(extraer_metrica "Jitter (AER):" 4)
     THR=$(extraer_metrica "Throughput:" 3)
