@@ -1,4 +1,4 @@
-Fase,Escenario,Dim_Malla,Buffer,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Iny,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
-3_Escalabilidad,Malla_2x2,2,512,2,12319,246604,246604,246604,657880,8.14,1.06,7.08,145.98,0.001713,36.544356,6748.07,Físico:8223524,81.25,10
-3_Escalabilidad,Malla_4x4,4,512,2,12319,246604,246604,246604,801446,6.44,1.02,5.43,72.87,0.000428,36.666388,6725.61,Físico:8223523,81.25,11
-3_Escalabilidad,Malla_6x6,6,512,2,12319,246604,246604,246604,1119245,7.95,1.01,6.94,44.96,0.000190,36.936516,6676.43,Físico:8223524,81.25,14
+Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_RAM,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
+3_Escalabilidad,Malla_2x2,2,512,512,2,12319,246604,246604,246604,657880,2178.05,RAM:,Loc:,3.34,2243.04,0.001769,35.411701,6963.91,Físico:8490776,81.25,10
+3_Escalabilidad,Malla_4x4,4,512,512,2,12319,246604,246604,246604,801446,1143.60,RAM:,Loc:,335.61,1348.71,0.000442,35.533602,6940.02,Físico:8490808,81.25,11
+3_Escalabilidad,Malla_6x6,6,512,512,2,12319,246604,246604,246604,1119245,504.76,RAM:,Loc:,298.87,783.55,0.000197,35.803714,6887.67,Físico:8490812,81.25,14

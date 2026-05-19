@@ -1,4 +1,4 @@
-Fase,Escenario,Dim_Malla,Buffer,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Iny,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
-6_Perfil_IA,Iters_5,4,1024,2,10825,216352,216352,216352,703092,6.45,1.02,5.43,69.06,0.000376,36.577970,5914.82,Físico:7215673,12.50,8
-6_Perfil_IA,Iters_20,4,1024,2,12319,246604,246604,246604,801446,6.44,1.02,5.43,72.87,0.000428,36.666388,6725.61,Físico:8223523,81.25,11
-6_Perfil_IA,Iters_50,4,1024,2,14079,287810,287810,287810,935341,5.97,1.02,4.96,43.00,0.000500,36.796062,7821.76,Físico:9593394,93.75,14
+Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_RAM,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
+6_Perfil_IA,Iters_5,4,1024,1024,2,10825,216352,216352,216352,703092,928.57,RAM:,Loc:,298.68,1117.56,0.000388,35.450011,6103.02,Físico:7449201,12.50,9
+6_Perfil_IA,Iters_20,4,1024,1024,2,12319,246604,246604,246604,801446,1136.78,RAM:,Loc:,356.10,1347.56,0.000442,35.533602,6940.02,Físico:8490808,81.25,12
+6_Perfil_IA,Iters_50,4,1024,1024,2,14079,287810,287810,287810,935341,1493.67,RAM:,Loc:,452.95,1693.63,0.000515,35.695175,8062.99,Físico:9896008,93.75,16

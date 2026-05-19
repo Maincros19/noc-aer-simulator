@@ -31,6 +31,10 @@ public:
     double getTotalLatencySq() const { return total_latency_sq; }
     double getTotalInjectionLatency() const { return total_injection_latency; }
     double getTotalNetworkLatency() const { return total_network_latency; }
+    double getTotalRamLatency() const { return total_ram_latency; }
+    double getTotalBufferLatency() const { return total_buffer_latency; }
+    double getAvgRamLatency() const { return flits_received > 0 ? (double)total_ram_latency / flits_received : 0; }
+    double getAvgBufferLatency() const { return flits_received > 0 ? (double)total_buffer_latency / flits_received : 0; }
     
     double getAvgLatency() const { return flits_received > 0 ? (double)total_latency / flits_received : 0; }
     double getLatencyJitter() const { 
@@ -99,6 +103,8 @@ private:
     double total_latency_sq; // Suma de latencias al cuadrado (para jitter)
     double total_injection_latency; // NUEVO
     double total_network_latency;   // NUEVO
+    double total_ram_latency;     // Acumulador espera en RAM
+    double total_buffer_latency;  // Acumulador espera en Buffer Local
 
     // Lógica de ruteo
     Port routeFlit(const Flit& flit);

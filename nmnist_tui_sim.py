@@ -198,7 +198,8 @@ def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
         out.append(f" | Flits Eyectados:  {metrics.get('flits_eyectados', 0):,} (Recibidos en destino)")
         out.append(f" | Flits Procesados: {metrics.get('flits_procesados', 0):,} (Total de saltos/ruteos)")
         out.append(f" | Lat. Total:       {metrics.get('latency', 0):.2f} ciclos (End-to-End)")
-        out.append(f" |  ├─ Inyección:    {metrics.get('inj_latency', 0):.2f} ciclos (Cola origen)")
+        out.append(f" |  ├─ Cola RAM:     {metrics.get('ram_latency', 0):.2f} ciclos (Espera software)")
+        out.append(f" |  ├─ Buffer Loc:   {metrics.get('buf_latency', 0):.2f} ciclos (Bloqueo hardware)")
         out.append(f" |  └─ Red:          {metrics.get('net_latency', 0):.2f} ciclos (Vuelo y saltos)")
         out.append(f" | Jitter (AER):     {metrics.get('jitter', 0):.2f} ciclos")
         out.append(f" | Throughput:       {metrics.get('throughput', 0):.6f} flits/ciclo/nodo")
@@ -333,25 +334,38 @@ def main_compat():
                 # Base de tiempo absoluta para este paso temporal concreto
                 t_base = step * CYCLES_PER_SNN_STEP + (i * total_steps * CYCLES_PER_SNN_STEP)
 
-                # Definimos la función de inyección local adaptada al paso actual
                 def inject_layer_step(tensor, src_grp, dst_grp, fan, offset_cycles):
                     nonlocal flit_id, total_spikes
-                    idxs = (tensor > 0).nonzero(as_tuple=False)
+
+                    # 1. Aplanamos el tensor simulando la memoria lineal física del nodo
+                    tensor_flat = tensor.flatten()
+
+                    # 2. Obtenemos las posiciones EXACTAS en memoria de las neuronas que disparan
+                    idxs = (tensor_flat > 0).nonzero(as_tuple=False)
                     num_spikes = len(idxs)
 
                     if num_spikes == 0:
                         return
 
                     total_spikes += num_spikes
-                    cycles_between_spikes = CYCLES_PER_SNN_STEP // (num_spikes + 1)
 
-                    for idx_num, _ in enumerate(idxs):
+                    # 3. Ciclos que tarda la ALU en evaluar una sola neurona
+                    # (Si el hardware procesa 2 neuronas por ciclo, esto sería 0.5)
+                    CYCLES_PER_EVAL = 1
+
+                    for idx_num, idx_tensor in enumerate(idxs):
+                        # idx_original es la dirección absoluta (ej: neurona 5, neurona 1024)
+                        idx_original = idx_tensor.item()
+
                         src = src_grp[idx_num % len(src_grp)]
                         dsts = [dst_grp[k % len(dst_grp)] for k in range(fan)]
 
                         for j, d in enumerate(dsts):
-                            # El tiempo del flit se calcula de manera proporcional dentro del paso actual
-                            t_sim = t_base + offset_cycles + (idx_num * cycles_between_spikes) + j
+                            # El momento de generación = tiempo base + inicio de capa + (posición * coste)
+                            # El fan-out (+ j) hace que los flits de un mismo spike se serialicen
+                            # consecutivamente al entrar al DMA del router.
+                            t_sim = t_base + offset_cycles + (idx_original * CYCLES_PER_EVAL) + j
+
                             flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, d, src, int(t_sim))
                             network.getRouter(src).injectFlit(flit, int(t_sim))
                             flit_id += 1
@@ -397,7 +411,8 @@ def main_compat():
         "flits_eyectados": network.getTotalFlitsReceived(),
         "flits_procesados": network.getTotalForwarded(),
         "latency": network.getAvgLatency(),
-        "inj_latency": network.getAvgInjectionLatency(),
+        "ram_latency": network.getAvgRamLatency(),       # NUEVO
+        "buf_latency": network.getAvgBufferLatency(),     # NUEVO
         "net_latency": network.getAvgNetworkLatency(),
         "jitter": network.getAvgJitter(),
         "energy": total_energy_uj,

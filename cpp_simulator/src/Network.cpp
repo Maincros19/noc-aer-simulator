@@ -155,3 +155,23 @@ double Network::getAvgNetworkLatency() const {
     }
     return total_rec > 0 ? total_net_sum / total_rec : 0;
 }
+
+double Network::getAvgRamLatency() const {
+    double total_ram_sum = 0;
+    uint64_t total_rec = 0;
+    for (auto const& [id, router] : routers) {
+        total_ram_sum += router->getTotalRamLatency();
+        total_rec += router->getFlitsReceived();
+    }
+    return total_rec > 0 ? total_ram_sum / total_rec : 0;
+}
+
+double Network::getAvgBufferLatency() const {
+    double total_buf_sum = 0;
+    uint64_t total_rec = 0;
+    for (auto const& [id, router] : routers) {
+        total_buf_sum += router->getTotalBufferLatency();
+        total_rec += router->getFlitsReceived();
+    }
+    return total_rec > 0 ? total_buf_sum / total_rec : 0;
+}

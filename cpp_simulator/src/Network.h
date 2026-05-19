@@ -27,6 +27,8 @@ public:
     double getAvgNetworkLatency() const;   // NUEVO
     uint64_t getSimulationTime() const;
     uint64_t getTotalForwarded() const;
+    double getAvgRamLatency() const;
+    double getAvgBufferLatency() const;
 
 private:
     int dim_x;

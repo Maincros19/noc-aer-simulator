@@ -6,7 +6,8 @@ Router::Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq)
     : id(id), x_coord(x), y_coord(y), dim_x(dim_x), dim_y(dim_y), event_queue(eq),
       max_injection_buffer_size(1024), max_network_buffer_size(32), last_arbitrated_port(WEST), is_processing_scheduled(false),
       flits_dropped(0), flits_received(0), flits_injected(0), flits_forwarded(0),
-      total_latency(0), total_latency_sq(0), total_injection_latency(0), total_network_latency(0) {
+      total_latency(0), total_latency_sq(0), total_injection_latency(0), total_network_latency(0),
+      total_ram_latency(0), total_buffer_latency(0) {
     for (int i = 0; i < NUM_PORTS; ++i) {
         input_buffers[static_cast<Port>(i)] = std::queue<Flit>();
 
@@ -45,7 +46,9 @@ void Router::processFlit(uint64_t current_time) {
     // --- NUEVO: HARDWARE DMA INJECTION ---
     // Transferimos 1 paquete por ciclo de la RAM al Búfer Físico (si hay espacio)
     if (!pending_injections.empty() && input_buffers[LOCAL].size() < max_injection_buffer_size) {
-        input_buffers[LOCAL].push(pending_injections.front());
+        Flit flit = pending_injections.front();
+        flit.dma_entry_time = current_time; // <--- Captura el ciclo de entrada al silicio
+        input_buffers[LOCAL].push(flit);
         pending_injections.pop();
     }
 
@@ -138,25 +141,28 @@ Port Router::arbitrate() {
 
 void Router::switchFlit(Flit flit, Port out_port, uint64_t current_time) {
     if (out_port == LOCAL) {
-        // Un flit llega a su destino LOCAL solo si el router actual es el destino.
-        // Verificamos si realmente es un flit de datos (BODY) y si este es su destino.
         if (flit.type == BODY && flit.dest_router_id == id) {
             flits_received++;
-            // Evitamos subflujos de enteros si current_time < injection_time
-            // debido a la inyección asíncrona desde Python.
             uint64_t lat = (current_time > flit.injection_time) ? (current_time - flit.injection_time) : 1;
             total_latency += lat;
             total_latency_sq += (lat * lat);
 
-            // --- NUEVO: CÁLCULO DESGLOSADO DE LATENCIAS ---
-            // Latencia de red: Tiempo desde que salió del nodo origen hasta ahora
+            // --- DESGLOSE REFINADO DE LATENCIAS ---
+            // 1. Espera en Software (RAM por secuenciación ALU)
+            uint64_t ram_lat = (flit.dma_entry_time >= flit.injection_time) ? (flit.dma_entry_time - flit.injection_time) : 0;
+            // 2. Espera en Silicio (Buffer Local bloqueado por falta de créditos/Stall)
+            uint64_t buf_lat = (flit.network_entry_time >= flit.dma_entry_time) ? (flit.network_entry_time - flit.dma_entry_time) : 0;
+            // 3. Tiempo de vuelo neto por los routers de la NoC
             uint64_t net_lat = (current_time > flit.network_entry_time) ? (current_time - flit.network_entry_time) : 0;
-            // Latencia de inyección: Tiempo desde que se generó hasta que logró salir del nodo origen
+
             uint64_t inj_lat = (flit.network_entry_time >= flit.injection_time) ? (flit.network_entry_time - flit.injection_time) : 0;
 
+            total_ram_latency += ram_lat;
+            total_buffer_latency += buf_lat;
             total_network_latency += net_lat;
             total_injection_latency += inj_lat;
         }
+
     } else {
         int next_router_id = -1;
         if (out_port == NORTH) { next_router_id = id - dim_x; }
