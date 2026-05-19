@@ -286,149 +286,101 @@ def main_compat():
 
                 draw_dashboard_compat("Entrenando Modelo SNN...", 0.1 + (i/args.iters)*0.4, args,
                                      train_info={'epoch': epoch+1, 'iter': i, 'loss': loss_val.item(), 'acc': acc})
+# Fase 2: Co-Simulación NoC Paso a Paso (Intercalada SNN-NoC)
+    draw_dashboard_compat("Iniciando Fase 2: Co-Simulación Temporal...", 0.6, args)
 
-    # Fase 2: Simulación NoC
-   # Fase 2: Simulación NoC
-    draw_dashboard_compat("Inyectando Tráfico en NoC...", 0.6, args)
-
-    # --- 1. INICIALIZACIÓN (Esto faltaba en tu bucle) ---
+    # --- 1. INICIALIZACIÓN DE LA RED ---
     event_queue = ncs.EventQueue()
     network = ncs.Network(args.dim, args.dim, event_queue)
     for r in range(args.dim * args.dim):
         network.getRouter(r).setBufferSizes(args.inj_buffer, args.net_buffer)
 
-    # --- 2. INYECCIÓN DE TRÁFICO (Basado en la inferencia de la SNN) ---
     flit_id, total_spikes = 0, 0
     net.eval()
+
+    # Correspondencia Temporal Física: 1 ms SNN = 1,200,000 ciclos NoC (a 1200 MHz)
+    CYCLES_PER_SNN_STEP = int((TECH["f_max_mhz"] * 1e6) * 1e-3)
+
     with torch.no_grad():
         for i in range(args.samples):
             data, _ = testset[i]
-            data = data.to(device).unsqueeze(1)
-            spk_out, spk1_p, spk2_p = net(data.float())
+            data = data.to(device).unsqueeze(1) # Matriz de la muestra corriente
 
-            for step in range(data.size(0)):
-                t_base = step * 2000 + (i * 50000)
+            # Inicializamos los estados de membrana de snnTorch al inicio de la muestra
+            mem1 = net.snn1.init_leaky()
+            mem2 = net.snn2.init_leaky()
+            mem3 = net.snn3.init_leaky()
 
-                def inject_layer(tensor, src_grp, dst_grp, fan, offset, spread):
+            total_steps = data.size(0)
+
+            for step in range(total_steps):
+                # --- A. GENERACIÓN INMEDIATA (1 SOLO TIMESTEP SNN) ---
+                # Replicamos el pipeline convolucional-SNN paso a paso de la clase CSNN
+                cur = net.conv1(data[step].float())
+                spk1, mem1 = net.snn1(cur, mem1)
+                cur_p1 = net.pool1(spk1)
+
+                cur = net.conv2(cur_p1)
+                spk2, mem2 = net.snn2(cur, mem2)
+                cur_p2 = net.pool2(spk2)
+
+                cur = net.flatten(cur_p2)
+                cur = net.fc1(cur)
+                spk_out, mem3 = net.snn3(cur, mem3)
+
+                # Base de tiempo absoluta para este paso temporal concreto
+                t_base = step * CYCLES_PER_SNN_STEP + (i * total_steps * CYCLES_PER_SNN_STEP)
+
+                # Definimos la función de inyección local adaptada al paso actual
+                def inject_layer_step(tensor, src_grp, dst_grp, fan, offset_cycles):
                     nonlocal flit_id, total_spikes
                     idxs = (tensor > 0).nonzero(as_tuple=False)
-                    total_spikes += len(idxs)
-                    for idx, _ in enumerate(idxs):
-                        src = src_grp[idx % len(src_grp)]
+                    num_spikes = len(idxs)
+
+                    if num_spikes == 0:
+                        return
+
+                    total_spikes += num_spikes
+                    cycles_between_spikes = CYCLES_PER_SNN_STEP // (num_spikes + 1)
+
+                    for idx_num, _ in enumerate(idxs):
+                        src = src_grp[idx_num % len(src_grp)]
                         dsts = [dst_grp[k % len(dst_grp)] for k in range(fan)]
+
                         for j, d in enumerate(dsts):
-                            t_sim = t_base + offset + (idx % spread) + (j % 5)
+                            # El tiempo del flit se calcula de manera proporcional dentro del paso actual
+                            t_sim = t_base + offset_cycles + (idx_num * cycles_between_spikes) + j
                             flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, d, src, int(t_sim))
                             network.getRouter(src).injectFlit(flit, int(t_sim))
                             flit_id += 1
 
-                inject_layer(data[step], nodes['input'], nodes['snn1'], 12, offset=0, spread=100)
-                inject_layer(spk1_p[step], nodes['snn1'], nodes['snn2'], 32, offset=200, spread=800)
-                inject_layer(spk2_p[step], nodes['snn2'], nodes['output'], 10, offset=1200, spread=100)
+                # --- B. INYECCIÓN INMEDIATA DEL TIMESTEP ---
+                inject_layer_step(data[step], nodes['input'], nodes['snn1'], 12, offset_cycles=0)
+                inject_layer_step(cur_p1, nodes['snn1'], nodes['snn2'], 32, offset_cycles=50000)
+                inject_layer_step(cur_p2, nodes['snn2'], nodes['output'], 10, offset_cycles=100000)
 
+                # --- C. SIMULACIÓN INMEDIATA (El Hardware alcanza a la SNN) ---
+                # Definimos la barrera temporal: el hardware no puede pasarse del tiempo de este step
+                tiempo_limite = t_base + CYCLES_PER_SNN_STEP
 
-    # --- 3. MONITOR AVANZADO DE TOPOLOGÍA Y BUFFERS ---
+                # Consumimos la cola de eventos en C++ poco a poco hasta llegar al límite de tiempo
+                while not event_queue.isEmpty() and event_queue.getCurrentTime() < tiempo_limite:
+                    network.stepSimulation(1) # Avanza procesando exactamente un evento por ciclo
 
-    draw_dashboard_compat("Simulando trafico de la red", 0.85, args)
-    """ GENERACION DE MAPA DE CALOR DESACTIVADO MOMENTANEAMENTE
-    frames_dir = "sim_frames"
-    if os.path.exists(frames_dir): shutil.rmtree(frames_dir)
-    os.makedirs(frames_dir)
+                # Actualización en vivo del Dashboard
+                global_step = i * total_steps + step
+                max_global_steps = args.samples * total_steps
+                progreso_sim = 0.60 + (global_step / max_global_steps) * 0.35
+                if step % 2 == 0:
+                    draw_dashboard_compat("Co-Simulando SNN y NoC paso a paso...", progreso_sim, args)
 
-    # Configuración de la Topología (Grafo de la malla)
-    G = nx.grid_2d_graph(args.dim, args.dim)
-    pos = {node: (node[0], args.dim - 1 - node[1]) for node in G.nodes()}
-
-    frame_idx = 0
-    events_per_frame = 15000 # Ajustado para un buen equilibrio entre detalle y velocidad
-
+    # --- 3. LIMPIEZA DE EVENTOS RESIDUALES ---
+    # Procesamos cualquier flit en vuelo o créditos remanentes que queden tras el último step
+    draw_dashboard_compat("Procesando tráfico residual en la NoC...", 0.95, args)
     while not event_queue.isEmpty():
-        network.stepSimulation(events_per_frame)
+        network.stepSimulation(25000)
 
-        # Creamos una figura con una rejilla: Izquierda para el Grafo, Derecha para detalles
-        fig = plt.figure(figsize=(18, 9), facecolor='#121212')
-        gs = fig.add_gridspec(2, 3)
-
-        # --- PANEL A: MONITOR DE TOPOLOGÍA Y BLOQUEOS (STALLS) ---
-        ax_topo = fig.add_subplot(gs[:, :2])
-        ax_topo.set_facecolor('#121212')
-
-        # Dibujamos los enlaces base (físicos)
-        nx.draw_networkx_edges(G, pos, ax=ax_topo, edge_color='#333333', width=1.5)
-
-        # Dibujamos los "Stalls": Flechas rojas cuando un enlace está bloqueado por falta de créditos
-        for r_id in range(args.dim * args.dim):
-            router = network.getRouter(r_id)
-            stalls = router.getLinkStallStatus()
-            x_c, y_c = router.getX(), router.getY()
-
-            # Mapeo visual de puertos: N(arriba), S(abajo), E(derecha), W(izquierda)
-            offsets = {1: (0, 0.4), 2: (0, -0.4), 3: (0.4, 0), 4: (-0.4, 0)}
-
-            for p_idx, is_stalled in enumerate(stalls):
-                if is_stalled and p_idx in offsets:
-                    dx, dy = offsets[p_idx]
-                    ax_topo.arrow(x_c, args.dim-1-y_c, dx, dy,
-                                 color='#ff4d4d', head_width=0.1, width=0.04, zorder=5)
-
-        # Routers coloreados por ocupación TOTAL (visión general)
-        total_occ = [network.getRouter(r).getBufferOccupancy() for r in range(args.dim**2)]
-        nodes = nx.draw_networkx_nodes(G, pos, ax=ax_topo, node_size=800,
-                                       node_color=total_occ, cmap=plt.cm.YlGnBu, vmin=0, vmax=50)
-        nx.draw_networkx_labels(G, pos, ax=ax_topo, font_color='white', font_size=9, font_weight='bold')
-        ax_topo.set_title(f"TOPOLOGÍA NoC | Rojo: Enlace Bloqueado | Ciclo: {network.getSimulationTime()}",
-                          color='white', fontsize=14, pad=15)
-
-        # --- PANEL B: DESGLOSE TÉCNICO (BUFFERS ESPECÍFICOS) ---
-        # Extraemos datos por puerto: LOCAL (inyección) y NORTH (ejemplo de red)
-        local_data = np.zeros((args.dim, args.dim))
-        north_data = np.zeros((args.dim, args.dim))
-
-        for r_id in range(args.dim**2):
-            router = network.getRouter(r_id)
-            occ = router.getDetailedOccupancy() # [LOCAL, NORTH, SOUTH, EAST, WEST]
-            local_data[router.getY(), router.getX()] = occ[0]
-            north_data[router.getY(), router.getX()] = occ[1]
-
-        # Puerto LOCAL (Muestra si las neuronas están saturando la entrada)
-        ax_l = fig.add_subplot(gs[0, 2])
-        sns.heatmap(local_data, annot=True, fmt=".0f", cmap="Oranges", vmin=0, vmax=20, ax=ax_l, cbar=False)
-        ax_l.set_title("Ocupación: Puerto LOCAL (Inyección)", color='white')
-
-        # Puerto NORTH (Muestra el tráfico fluyendo hacia arriba)
-        ax_n = fig.add_subplot(gs[1, 2])
-        sns.heatmap(north_data, annot=True, fmt=".0f", cmap="Reds", vmin=0, vmax=20, ax=ax_n, cbar=False)
-        ax_n.set_title("Ocupación: Puerto NORTH (Red)", color='white')
-
-        plt.tight_layout()
-        plt.savefig(f"{frames_dir}/f_{frame_idx:04d}.png", facecolor='#121212')
-        plt.close()
-        frame_idx += 1
-
-    # Al final de main_compat, usa el nombre pasado por argumento
-    generate_simulation_video(frames_dir, f"{args.video_name}.mp4")
-    if os.path.exists(frames_dir):
-        print(f"🧹 Limpiando frames temporales en '{frames_dir}'...")
-        shutil.rmtree(frames_dir)
-        print("✅ Carpeta de frames eliminada.")
-    """
-
-    # EJECUCION DE LA SIMULACION SIN GENERACION DE MAPA DE CALOR
-    # EJECUCION DINÁMICA DE LA SIMULACION
-    eventos_por_paso = 25000  # Procesamos de 25k en 25k eventos para no saturar el refresco
-    eventos_procesados = 0
-    # Estimación (heurística): cada flit genera aprox 4-6 eventos en la cola
-    eventos_totales_estimados = flit_id * 5
-
-    while not event_queue.isEmpty():
-        network.stepSimulation(eventos_por_paso)
-        eventos_procesados += eventos_por_paso
-
-        # Calculamos que esta fase va del 60% al 98% del progreso total
-        progreso_sim = min(0.98, 0.60 + (eventos_procesados / eventos_totales_estimados) * 0.38)
-        draw_dashboard_compat("Simulando ruteo de flits en malla NoC...", progreso_sim, args)
-
-    # --- Métricas Finales (Cálculos originales) ---
+    # --- 4. MÉTRICAS FINALES ---
     sim_t = network.getSimulationTime()
     period_ns = 1000.0 / TECH['f_max_mhz']
     total_energy_uj = (network.getTotalForwarded() * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_t * period_ns)) / 1e6
@@ -438,10 +390,10 @@ def main_compat():
 
     metrics = {
         "spikes": total_spikes,
-        "flits_generados": flit_id, # Creados por la SNN
-        "flits_inyectados": network.getTotalFlitsInjected(), # Entregados al router origen
-        "flits_eyectados": network.getTotalFlitsReceived(),  # Llegaron a su destino
-        "flits_procesados": network.getTotalForwarded(),     # Saltos totales en la red
+        "flits_generados": flit_id,
+        "flits_inyectados": network.getTotalFlitsInjected(),
+        "flits_eyectados": network.getTotalFlitsReceived(),
+        "flits_procesados": network.getTotalForwarded(),
         "latency": network.getAvgLatency(),
         "inj_latency": network.getAvgInjectionLatency(),
         "net_latency": network.getAvgNetworkLatency(),
