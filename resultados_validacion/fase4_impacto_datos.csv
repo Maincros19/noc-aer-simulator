@@ -1,0 +1,4 @@
+Fase,Escenario,Dim_Malla,Buffer,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Iny,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
+4_Impacto_Datos,Muestras_1,4,1024,1,6950,136860,136860,136860,444756,5.79,1.01,4.78,29.14,0.000475,18.380085,7446.10,Físico:9122965,53.12,7
+4_Impacto_Datos,Muestras_5,4,1024,5,34512,682170,682170,682170,2216947,5.94,1.01,4.92,41.76,0.000474,91.865867,7425.72,Físico:9097474,53.12,20
+4_Impacto_Datos,Muestras_10,4,1024,10,68187,1345100,1345100,1345100,4371384,5.97,1.02,4.96,43.91,0.000467,183.700835,7322.23,Físico:8968073,53.12,37

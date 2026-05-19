@@ -1,0 +1,4 @@
+Fase,Escenario,Dim_Malla,Buffer,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Iny,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
+3_Escalabilidad,Malla_2x2,2,512,2,12319,246604,246604,246604,657880,8.14,1.06,7.08,145.98,0.001713,36.544356,6748.07,Físico:8223524,81.25,10
+3_Escalabilidad,Malla_4x4,4,512,2,12319,246604,246604,246604,801446,6.44,1.02,5.43,72.87,0.000428,36.666388,6725.61,Físico:8223523,81.25,11
+3_Escalabilidad,Malla_6x6,6,512,2,12319,246604,246604,246604,1119245,7.95,1.01,6.94,44.96,0.000190,36.936516,6676.43,Físico:8223524,81.25,14

@@ -5,5 +5,4 @@ data/
 __pycache__/
 cpp_simulator/build/
 *.so
-resultados_validacion/
 *.mp4

@@ -1,0 +1,4 @@
+Fase,Escenario,Dim_Malla,Buffer,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Iny,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
+6_Perfil_IA,Iters_5,4,1024,2,10825,216352,216352,216352,703092,6.45,1.02,5.43,69.06,0.000376,36.577970,5914.82,Físico:7215673,12.50,8
+6_Perfil_IA,Iters_20,4,1024,2,12319,246604,246604,246604,801446,6.44,1.02,5.43,72.87,0.000428,36.666388,6725.61,Físico:8223523,81.25,11
+6_Perfil_IA,Iters_50,4,1024,2,14079,287810,287810,287810,935341,5.97,1.02,4.96,43.00,0.000500,36.796062,7821.76,Físico:9593394,93.75,14

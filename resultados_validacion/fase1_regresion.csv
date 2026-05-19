@@ -1,0 +1,4 @@
+Fase,Escenario,Dim_Malla,Buffer,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Iny,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
+1_Regresion,Determinismo_1,4,4096,1,6331,127238,127238,127238,413477,6.59,1.02,5.57,79.03,0.000442,18.351493,6933.39,Físico:8482515,81.25,9
+1_Regresion,Determinismo_2,4,4096,1,6331,127238,127238,127238,413477,6.59,1.02,5.57,79.03,0.000442,18.351493,6933.39,Físico:8482515,81.25,9
+1_Regresion,Determinismo_3,4,4096,1,6331,127238,127238,127238,413477,6.59,1.02,5.57,79.03,0.000442,18.351493,6933.39,Físico:8482515,81.25,8
