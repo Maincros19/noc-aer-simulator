@@ -50,6 +50,7 @@ def parse_args():
     parser.add_argument("--samples", type=int, default=1, help="Muestras para simulación NoC")
     parser.add_argument("--lr", type=float, default=2e-3, help="Tasa de aprendizaje")
     parser.add_argument("--video_name", type=str, default="noc_traffic", help="Nombre del archivo de video de salida")
+    parser.add_argument("--freq", type=int, default=1200, help="Frecuencia NoC en MHz (Para Test de Estrés)")
     return parser.parse_args()
 
 def set_determinism(seed=42):
@@ -225,6 +226,7 @@ def main_compat():
     set_determinism(42)
 
     args = parse_args()
+    TECH["f_max_mhz"] = args.freq
     device = torch.device("cpu")
     nodes = get_node_mapping(args.dim)
 
