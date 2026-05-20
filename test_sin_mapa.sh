@@ -8,25 +8,20 @@ DIR_RESULTADOS="resultados_validacion"
 
 mkdir -p $DIR_RESULTADOS
 
-CSV_F1="$DIR_RESULTADOS/fase1_regresion.csv"
-CSV_F2="$DIR_RESULTADOS/fase2_congestion_estres.csv"
-CSV_F3="$DIR_RESULTADOS/fase3_escalabilidad.csv"
-CSV_F4="$DIR_RESULTADOS/fase4_impacto_datos.csv"
-CSV_F5="$DIR_RESULTADOS/fase5_asimetria.csv"
-CSV_F6="$DIR_RESULTADOS/fase6_perfil_ia.csv"
+CSV_FREQ="$DIR_RESULTADOS/test1_frecuencia.csv"
+CSV_DIM="$DIR_RESULTADOS/test2_escalabilidad.csv"
 
 echo "=========================================================="
-echo "🚀 INICIANDO BATERÍA DE VALIDACIÓN AVANZADA NoC-AER"
+echo "🚀 INICIANDO BATERÍA DE VALIDACIÓN EXTENSA NoC-AER"
 echo "=========================================================="
 echo "Los resultados se guardarán en: ./$DIR_RESULTADOS"
 echo ""
 
-# Cabecera actualizada con Buffer_Iny y Buffer_Red separados
+# Cabecera completa con Buffer_Iny y Buffer_Red separados
 STD_HEADER="Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_RAM,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s"
 
-for file in "$CSV_F1" "$CSV_F2" "$CSV_F3" "$CSV_F4" "$CSV_F5" "$CSV_F6"; do
-    echo "$STD_HEADER" > "$file"
-done
+echo "$STD_HEADER" > "$CSV_FREQ"
+echo "$STD_HEADER" > "$CSV_DIM"
 
 # ==========================================
 # FUNCIONES DE EXTRACCIÓN Y GUARDADO
@@ -40,9 +35,6 @@ extraer_rendimiento() {
     grep -E "Rendimiento:|Throughput Físico:|Tasa Absoluta:" "$TMP_FILE" | awk '{print $(NF-1)}' | tr -d ','
 }
 
-
-
-# Modifica la función guardar_metricas en run_tests.sh:
 guardar_metricas() {
     local FASE=$1 ESCENARIO=$2 DIM=$3 BUF_INY=$4 BUF_RED=$5 MUESTRAS=$6 TIEMPO_TEST=$7 TARGET_CSV=$8
 
@@ -52,12 +44,10 @@ guardar_metricas() {
     FLITS_EYE=$(extraer_metrica "Flits Eyectados:" 4)
     FLITS_PRO=$(extraer_metrica "Flits Procesados:" 4)
 
-    # ... código anterior ...
     LAT_TOT=$(extraer_metrica "Lat. Total:" 4)
-    LAT_RAM=$(extraer_metrica "Cola RAM:" 5)      # <--- Cambiar de 4 a 5
-    LAT_BUF=$(extraer_metrica "Buffer Loc:" 5)    # <--- Cambiar de 4 a 5
-    LAT_RED=$(extraer_metrica "Red:" 4)           # Este se queda en 4
-    # ... código siguiente ...
+    LAT_RAM=$(extraer_metrica "Cola RAM:" 5)      # Extrae la latencia de software
+    LAT_BUF=$(extraer_metrica "Buffer Loc:" 5)    # Extrae la latencia de hardware
+    LAT_RED=$(extraer_metrica "Red:" 4)           # Extrae la latencia de vuelo
 
     JIT=$(extraer_metrica "Jitter (AER):" 4)
     THR=$(extraer_metrica "Throughput:" 3)
@@ -74,113 +64,54 @@ guardar_metricas() {
 }
 
 # ==========================================
-# FASE 1: REGRESIÓN (DETERMINISMO EN ZERO-LOAD)
-# Default: dim=4, epochs=1, samples=1, freq=1200
+# TEST 1: IMPACTO DE LA FRECUENCIA DEL RELOJ
+# Fijamos: Dim=4, Muestras=2, Buffers=64 (para evidenciar saturación)
 # ==========================================
-echo "▶ FASE 1: Comprobando Determinismo (1200 MHz)..."
-for i in {1..3}; do
-    START_TIME=$(date +%s)
-    python3 nmnist_tui_sim.py --inj_buffer 4096 --net_buffer 4096 > "$TMP_FILE" 2>&1
-    END_TIME=$(date +%s)
+FRECUENCIAS=(10 15 25 50 100 250 500 800 1200)
+echo "▶ TEST 1: Espectro de Frecuencia de Reloj (Contrapresión Dinámica)..."
 
-    LAT=$(extraer_metrica "Lat. Total:" 4)
-    echo "  Ejecución $i -> Latencia: $LAT"
-    # Pasamos 4096 4096
-    guardar_metricas "1_Regresion" "Determinismo_$i" 4 4096 4096 1 $((END_TIME - START_TIME)) "$CSV_F1"
+for FREQ in "${FRECUENCIAS[@]}"; do
+    echo -n "  Simulando a ${FREQ} MHz... "
+    START_TIME=$(date +%s)
+    # Buffers a 64 obligan al DMA y a la Red a mostrar sus límites bajo distintas velocidades de reloj
+    python3 nmnist_tui_sim.py --samples 2 --inj_buffer 64 --net_buffer 64 --freq $FREQ > "$TMP_FILE" 2>&1
+    END_TIME=$(date +%s)
+    TIEMPO=$((END_TIME - START_TIME))
+
+    LAT_TOT=$(extraer_metrica "Lat. Total:" 4)
+    LAT_RAM=$(extraer_metrica "Cola RAM:" 5)
+    echo "OK! (Lat Total: $LAT_TOT | Lat RAM: $LAT_RAM)"
+
+    guardar_metricas "1_Frecuencia" "Freq_${FREQ}MHz" 4 64 64 2 $TIEMPO "$CSV_FREQ"
 done
 echo "----------------------------------------------------------"
 
 # ==========================================
-# FASE 2: ESTRÉS Y CONGESTIÓN (RELOJ AHOGADO A 15 MHz)
-# Default: dim=4
+# TEST 2: ESCALABILIDAD TOPOLÓGICA (TAMAÑO DE LA MALLA)
+# Fijamos: Freq=1200MHz, Muestras=2, Buffers=512 (para aislar el coste del Hop Count)
 # ==========================================
-BUFFERS=(1024 256 64 16)
-echo "▶ FASE 2: Prueba de Contrapresión (Estrés a 15 MHz)..."
-for BUF in "${BUFFERS[@]}"; do
-    echo -n "  Simulando Buffers a $BUF... "
-    START_TIME=$(date +%s)
-    python3 nmnist_tui_sim.py --samples 2 --inj_buffer $BUF --net_buffer $BUF --freq 15 > "$TMP_FILE" 2>&1
-    END_TIME=$(date +%s)
+DIMS=(2 4 6 8 10)
+echo "▶ TEST 2: Escalabilidad Física (Variación de la Malla)..."
 
-    echo "OK! (Lat: $(extraer_metrica "Lat. Total:" 4))"
-    # Pasamos $BUF $BUF
-    guardar_metricas "2_Congestion" "Stress_Buf_$BUF" 4 $BUF $BUF 2 $((END_TIME - START_TIME)) "$CSV_F2"
-done
-echo "----------------------------------------------------------"
-
-# ==========================================
-# FASE 3: ESCALABILIDAD TOPOLÓGICA (1200 MHz)
-# Default: freq=1200
-# ==========================================
-DIMS=(2 4 6)
-echo "▶ FASE 3: Escalabilidad (Aumentando Malla)..."
 for DIM in "${DIMS[@]}"; do
-    echo -n "  Simulando Malla ${DIM}x${DIM}... "
+    echo -n "  Simulando Malla ${DIM}x${DIM} (${DIM}x${DIM} routers)... "
     START_TIME=$(date +%s)
+    # Almacenamiento holgado (512) para que el atasco no ensucie la latencia de vuelo puro
     python3 nmnist_tui_sim.py --dim $DIM --samples 2 --inj_buffer 512 --net_buffer 512 > "$TMP_FILE" 2>&1
     END_TIME=$(date +%s)
+    TIEMPO=$((END_TIME - START_TIME))
 
-    echo "OK! (Lat: $(extraer_metrica "Lat. Total:" 4))"
-    # Pasamos 512 512
-    guardar_metricas "3_Escalabilidad" "Malla_${DIM}x${DIM}" $DIM 512 512 2 $((END_TIME - START_TIME)) "$CSV_F3"
+    LAT_RED=$(extraer_metrica "Red:" 4)
+    echo "OK! (Lat Red/Vuelo: $LAT_RED)"
+
+    guardar_metricas "2_Escalabilidad" "Malla_${DIM}x${DIM}" $DIM 512 512 2 $TIEMPO "$CSV_DIM"
 done
 echo "----------------------------------------------------------"
 
-# ==========================================
-# FASE 4: IMPACTO DEL VOLUMEN DE DATOS (1200 MHz)
-# Default: dim=4, epochs=1, freq=1200, inj_buffer=1024
-# ==========================================
-SAMPLES_ARRAY=(1 5 10)
-echo "▶ FASE 4: Impacto del Volumen de Muestras..."
-for S in "${SAMPLES_ARRAY[@]}"; do
-    echo -n "  Inyectando $S muestras... "
-    START_TIME=$(date +%s)
-    python3 nmnist_tui_sim.py --iters 10 --samples $S --net_buffer 1024 > "$TMP_FILE" 2>&1
-    END_TIME=$(date +%s)
-
-    echo "OK! (Flits Procesados: $(extraer_metrica "Flits Procesados:" 4))"
-    # Pasamos 1024 1024 (ya que inj_buffer es 1024 por defecto)
-    guardar_metricas "4_Impacto_Datos" "Muestras_$S" 4 1024 1024 $S $((END_TIME - START_TIME)) "$CSV_F4"
-done
-echo "----------------------------------------------------------"
-
-# ==========================================
-# FASE 5: ASIMETRÍA DE BUFFERS (ESTRÉS A 15 MHz)
-# Default: dim=4
-# ==========================================
-echo "▶ FASE 5: Asimetría de Buffers (Inyección vs Red)..."
-CONFIGS_ASIM=("4096:16" "16:4096" "256:32" "32:256")
-for CONF in "${CONFIGS_ASIM[@]}"; do
-    INJ="${CONF%%:*}"
-    NET="${CONF##*:}"
-    echo -n "  Simulando Inj=$INJ / Net=$NET... "
-    START_TIME=$(date +%s)
-    python3 nmnist_tui_sim.py --samples 2 --inj_buffer $INJ --net_buffer $NET --freq 15 > "$TMP_FILE" 2>&1
-    END_TIME=$(date +%s)
-
-    echo "OK! (Lat: $(extraer_metrica "Lat. Total:" 4))"
-    # Pasamos $INJ $NET
-    guardar_metricas "5_Asimetria" "Stress_Inj${INJ}_Net${NET}" 4 $INJ $NET 2 $((END_TIME - START_TIME)) "$CSV_F5"
-done
-echo "----------------------------------------------------------"
-
-# ==========================================
-# FASE 6: IMPACTO DEL ENTRENAMIENTO IA (1200 MHz)
-# Default: dim=4, epochs=1, freq=1200, inj_buffer=1024
-# ==========================================
-ITERS_ARRAY=(5 20 50)
-echo "▶ FASE 6: Perfil de Tráfico por Madurez SNN..."
-for ITER in "${ITERS_ARRAY[@]}"; do
-    echo -n "  Entrenando $ITER iteraciones... "
-    START_TIME=$(date +%s)
-    python3 nmnist_tui_sim.py --iters $ITER --samples 2 --net_buffer 1024 > "$TMP_FILE" 2>&1
-    END_TIME=$(date +%s)
-
-    echo "OK! (Acc: $(extraer_metrica "PRECISION IA FINAL:" 4)%)"
-    # Pasamos 1024 1024 (ya que inj_buffer es 1024 por defecto)
-    guardar_metricas "6_Perfil_IA" "Iters_$ITER" 4 1024 1024 2 $((END_TIME - START_TIME)) "$CSV_F6"
-done
-echo "----------------------------------------------------------"
-
+# Limpieza final
 rm -f "$TMP_FILE"
-echo "🎉 ¡VALIDACIÓN INTEGRAL COMPLETADA! 🎉"
+
+echo "🎉 ¡PRUEBAS EXTENSAS COMPLETADAS! 🎉"
+echo "Archivos generados:"
+echo " 1. ./$CSV_FREQ"
+echo " 2. ./$CSV_DIM"
