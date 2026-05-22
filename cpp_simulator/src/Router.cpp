@@ -32,21 +32,23 @@ void Router::mapNeuron(int neuron_id, double v_th, double leak, const std::vecto
     local_neurons.push_back(n);
 }
 
-void Router::evaluateNeurons(uint64_t current_time) {
+void Router::evaluateNeurons(uint64_t current_time, uint64_t tiempo_limite) {
+    // IMPORTANTE: Actualizamos la variable de clase para que switchFlit la vea
+    this->tiempo_limite_actual = tiempo_limite;
+
     bool generated_spikes = false;
 
     for (auto& n : local_neurons) {
-        n.v_mem *= n.leak_factor; // Fuga (Leaky)
+        n.v_mem *= n.leak_factor;
 
         if (n.v_mem >= n.v_th) {
-            n.v_mem = 0.0; // Reset tras disparar
-            n.spike_count++; // <--- NUEVO: Registramos que esta neurona ha disparado
+            n.v_mem = 0.0;
+            n.spike_count++;
 
             for (auto& syn : n.synapses) {
                 uint64_t flit_id_global = ((uint64_t)this->id << 32) | (flit_id_counter++);
                 Flit flit(flit_id_global, 0, BODY, this->id, syn.dest_router_id, this->id, current_time, syn.weight, syn.dest_neuron_id);
 
-                // En In-Memory, el flit nace directamente en el silicio
                 flit.dma_entry_time = current_time;
                 flit.network_entry_time = current_time;
 
@@ -61,7 +63,6 @@ void Router::evaluateNeurons(uint64_t current_time) {
         }
     }
 
-    // Si el hardware interno inyectó flits, debemos programar el router para que los enrute
     if (generated_spikes && !is_processing_scheduled) {
         event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
         is_processing_scheduled = true;
@@ -213,11 +214,18 @@ void Router::switchFlit(Flit flit, Port out_port, uint64_t current_time) {
             total_injection_latency += inj_lat;
 
             // --- NUEVO: CIERRE LÓGICO IN-MEMORY ---
-            // Buscamos la neurona de destino en la SRAM local y le sumamos el peso del flit
+            bool neurona_encontrada = false;
             for (auto& n : local_neurons) {
                 if (n.neuron_id == flit.dest_neuron_id) {
-                    n.v_mem += flit.payload_weight;
-                    break; // Salimos del bucle una vez que encontramos la neurona
+                    neurona_encontrada = true;
+
+                    // Solo sumamos voltaje si el tiempo de llegada es <= al límite biológico
+                    if (current_time > tiempo_limite_actual) {
+                        late_flits++; // Flit descartado por latencia excesiva
+                    } else {
+                        n.v_mem += flit.payload_weight; // Integración correcta
+                    }
+                    break;
                 }
             }
         }
@@ -267,9 +275,16 @@ uint64_t Router::getNeuronSpikeCount(int neuron_id) const {
     return 0; // Si no existe, no ha disparado
 }
 
+// Método para resetear el contador de late_flits entre imágenes
 void Router::resetNeuronsState() {
     for (auto& n : local_neurons) {
         n.v_mem = 0.0;
         n.spike_count = 0;
     }
+    late_flits = 0; // Resetear también el contador de descartes
+}
+
+// Método para exponer el valor a Python
+uint64_t Router::getLateFlits() const {
+    return late_flits;
 }

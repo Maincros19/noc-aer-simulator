@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# CONFIGURACIÓN INICIAL
+# CONFIGURACIÓN INICIAL (IN-MEMORY COMPUTING)
 # ==========================================
 TMP_FILE="temp_sim_output.txt"
 DIR_RESULTADOS="resultados_validacion"
@@ -13,12 +13,13 @@ CSV_DIM="$DIR_RESULTADOS/test2_escalabilidad.csv"
 
 echo "=========================================================="
 echo "🚀 INICIANDO BATERÍA DE VALIDACIÓN EXTENSA NoC-AER"
+echo "🧠 Arquitectura: In-Memory Computing (ASIC Emulation)"
 echo "=========================================================="
 echo "Los resultados se guardarán en: ./$DIR_RESULTADOS"
 echo ""
 
-# Cabecera completa con Buffer_Iny y Buffer_Red separados
-STD_HEADER="Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_RAM,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s"
+# Cabecera actualizada: Se elimina Lat_RAM (al ser In-Memory es 0/inexistente)
+STD_HEADER="Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s"
 
 echo "$STD_HEADER" > "$CSV_FREQ"
 echo "$STD_HEADER" > "$CSV_DIM"
@@ -28,11 +29,13 @@ echo "$STD_HEADER" > "$CSV_DIM"
 # ==========================================
 
 extraer_metrica() {
+    # Busca la etiqueta, selecciona la columna indicada, y limpia comas y porcentajes
     grep "$1" "$TMP_FILE" | awk -v col="$2" '{print $col}' | tr -d ',' | tr -d '%'
 }
 
 extraer_rendimiento() {
-    grep -E "Rendimiento:|Throughput Físico:|Tasa Absoluta:" "$TMP_FILE" | awk '{print $(NF-1)}' | tr -d ','
+    # Extracción específica robusta para el formato "Throughput Físico:XXXX flits/s"
+    grep "Throughput Físico:" "$TMP_FILE" | awk -F':' '{print $2}' | awk '{print $1}' | tr -d ','
 }
 
 guardar_metricas() {
@@ -45,50 +48,51 @@ guardar_metricas() {
     FLITS_PRO=$(extraer_metrica "Flits Procesados:" 4)
 
     LAT_TOT=$(extraer_metrica "Lat. Total:" 4)
-    LAT_RAM=$(extraer_metrica "Cola RAM:" 5)      # Extrae la latencia de software
-    LAT_BUF=$(extraer_metrica "Buffer Loc:" 5)    # Extrae la latencia de hardware
-    LAT_RED=$(extraer_metrica "Red:" 4)           # Extrae la latencia de vuelo
+    LAT_BUF=$(extraer_metrica "├─ Buffer Loc:" 5)   # Latencia de hardware por contención Fan-Out
+    LAT_RED=$(extraer_metrica "└─ Red:" 4)         # Latencia de vuelo en los enlaces NoC
 
     JIT=$(extraer_metrica "Jitter (AER):" 4)
     THR=$(extraer_metrica "Throughput:" 3)
     ENG=$(extraer_metrica "Energia Total:" 4)
     EFI=$(extraer_metrica "Eficiencia:" 3)
     RND=$(extraer_rendimiento)
-    ACC=$(extraer_metrica "PRECISION IA FINAL:" 4)
+    ACC=$(extraer_metrica "PRECISION IA FINAL:" 4) # Precisión calculada en silicio
 
     if [ -z "$LAT_TOT" ]; then
-        echo "$FASE,$ESCENARIO,$DIM,$BUF_INY,$BUF_RED,$MUESTRAS,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,$TIEMPO_TEST" >> "$TARGET_CSV"
+        echo "$FASE,$ESCENARIO,$DIM,$BUF_INY,$BUF_RED,$MUESTRAS,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,$TIEMPO_TEST" >> "$TARGET_CSV"
     else
-        echo "$FASE,$ESCENARIO,$DIM,$BUF_INY,$BUF_RED,$MUESTRAS,$SPK,$FLITS_GEN,$FLITS_INY,$FLITS_EYE,$FLITS_PRO,$LAT_TOT,$LAT_RAM,$LAT_BUF,$LAT_RED,$JIT,$THR,$ENG,$EFI,$RND,$ACC,$TIEMPO_TEST" >> "$TARGET_CSV"
+        echo "$FASE,$ESCENARIO,$DIM,$BUF_INY,$BUF_RED,$MUESTRAS,$SPK,$FLITS_GEN,$FLITS_INY,$FLITS_EYE,$FLITS_PRO,$LAT_TOT,$LAT_BUF,$LAT_RED,$JIT,$THR,$ENG,$EFI,$RND,$ACC,$TIEMPO_TEST" >> "$TARGET_CSV"
     fi
 }
 
 # ==========================================
 # TEST 1: IMPACTO DE LA FRECUENCIA DEL RELOJ
-# Fijamos: Dim=4, Muestras=2, Buffers=64 (para evidenciar saturación)
 # ==========================================
-FRECUENCIAS=(10 15 25 50 100 250 500 800 1200)
-echo "▶ TEST 1: Espectro de Frecuencia de Reloj (Contrapresión Dinámica)..."
+# Bajamos a frecuencias sub-MHz para obligar a que la ventana de tiempo
+# sea MENOR a los ciclos que necesita la red (ej. 0.01 MHz = solo 10 ciclos por ms)
+FRECUENCIAS=(0.01 0.05 0.1 0.5 1 5 10 50)
+echo "▶ TEST 1: Espectro de Frecuencia de Reloj (Stress Temporal)..."
 
 for FREQ in "${FRECUENCIAS[@]}"; do
     echo -n "  Simulando a ${FREQ} MHz... "
     START_TIME=$(date +%s)
-    # Buffers a 64 obligan al DMA y a la Red a mostrar sus límites bajo distintas velocidades de reloj
-    python3 nmnist_tui_sim.py --samples 2 --inj_buffer 64 --net_buffer 64 --freq $FREQ > "$TMP_FILE" 2>&1
+    # 5 muestras para dar solidez estadística a la precisión de la IA
+    python3 nmnist_tui_sim.py --samples 5 --inj_buffer 64 --net_buffer 64 --freq $FREQ > "$TMP_FILE" 2>&1
     END_TIME=$(date +%s)
     TIEMPO=$((END_TIME - START_TIME))
 
     LAT_TOT=$(extraer_metrica "Lat. Total:" 4)
-    LAT_RAM=$(extraer_metrica "Cola RAM:" 5)
-    echo "OK! (Lat Total: $LAT_TOT | Lat RAM: $LAT_RAM)"
+    ACC_IA=$(extraer_metrica "PRECISION IA FINAL:" 4)
+    echo "OK! (Lat Total: $LAT_TOT ciclos | Precisión IA: $ACC_IA%)"
 
-    guardar_metricas "1_Frecuencia" "Freq_${FREQ}MHz" 4 64 64 2 $TIEMPO "$CSV_FREQ"
+    guardar_metricas "1_Frecuencia" "Freq_${FREQ}MHz" 4 64 64 5 $TIEMPO "$CSV_FREQ"
 done
 echo "----------------------------------------------------------"
 
 # ==========================================
-# TEST 2: ESCALABILIDAD TOPOLÓGICA (TAMAÑO DE LA MALLA)
-# Fijamos: Freq=1200MHz, Muestras=2, Buffers=512 (para aislar el coste del Hop Count)
+# TEST 2: ESCALABILIDAD TOPOLÓGICA (ALIVIO DEL FAN-OUT)
+# Fijamos: Freq=1200MHz, Muestras=5, Buffers=512
+# Objetivo: Ver cómo esparcir el mapeo reduce el colapso del Buffer Loc
 # ==========================================
 DIMS=(2 4 6 8 10)
 echo "▶ TEST 2: Escalabilidad Física (Variación de la Malla)..."
@@ -96,15 +100,15 @@ echo "▶ TEST 2: Escalabilidad Física (Variación de la Malla)..."
 for DIM in "${DIMS[@]}"; do
     echo -n "  Simulando Malla ${DIM}x${DIM} (${DIM}x${DIM} routers)... "
     START_TIME=$(date +%s)
-    # Almacenamiento holgado (512) para que el atasco no ensucie la latencia de vuelo puro
-    python3 nmnist_tui_sim.py --dim $DIM --samples 2 --inj_buffer 512 --net_buffer 512 > "$TMP_FILE" 2>&1
+    python3 nmnist_tui_sim.py --dim $DIM --samples 5 --inj_buffer 512 --net_buffer 512 > "$TMP_FILE" 2>&1
     END_TIME=$(date +%s)
     TIEMPO=$((END_TIME - START_TIME))
 
-    LAT_RED=$(extraer_metrica "Red:" 4)
-    echo "OK! (Lat Red/Vuelo: $LAT_RED)"
+    LAT_BUF=$(extraer_metrica "├─ Buffer Loc:" 5)
+    LAT_RED=$(extraer_metrica "└─ Red:" 4)
+    echo "OK! (Lat Buffer: $LAT_BUF | Lat Red: $LAT_RED)"
 
-    guardar_metricas "2_Escalabilidad" "Malla_${DIM}x${DIM}" $DIM 512 512 2 $TIEMPO "$CSV_DIM"
+    guardar_metricas "2_Escalabilidad" "Malla_${DIM}x${DIM}" $DIM 512 512 5 $TIEMPO "$CSV_DIM"
 done
 echo "----------------------------------------------------------"
 

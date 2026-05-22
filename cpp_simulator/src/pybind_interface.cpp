@@ -97,7 +97,9 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("mapNeuron", &Router::mapNeuron, py::arg("neuron_id"), py::arg("v_th"), py::arg("leak"), py::arg("synapses"))
         .def("getNeuronSpikeCount", &Router::getNeuronSpikeCount, py::arg("neuron_id"))
         .def("resetNeuronsState", &Router::resetNeuronsState)
-        .def("evaluateNeurons", &Router::evaluateNeurons, py::arg("current_time"));
+        .def("evaluateNeurons", &Router::evaluateNeurons, py::arg("current_time"), py::arg("tiempo_limite"))
+        .def_readwrite("tiempo_limite_actual", &Router::tiempo_limite_actual) // <--- ESTO ES LO QUE FALTA
+        .def("getLateFlits", &Router::getLateFlits);
 
     py::class_<Network>(m, "Network")
         .def(py::init<int, int, EventQueue&>(),

@@ -205,9 +205,13 @@ def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
         out.append(f" | Energia Total:    {metrics.get('energy', 0):.6f} uJ")
         out.append(f" | Eficiencia:       {metrics.get('energy_eff', 0):,.2f} flits/uJ")
         out.append(f" | Throughput Físico:{metrics.get('temporal_perf', 0):,.0f} flits/s")
+        late = metrics.get('late_flits', 0)
+        if late > 0:
+            out.append(f" | ⚠️ ALERTA: {late:,} flits descartados por latencia (Violación temporal)")
         out.append(" +------------------------------------------------------------")
-        out.append("")
-        out.append(f" PRECISION IA FINAL:  {metrics.get('accuracy', 0):.2f}%")
+        out.append(f" PRECISION IA:")
+        out.append(f"  └─ Software (Baseline): {metrics.get('baseline_accuracy', 0):.2f}%")
+        out.append(f"  └─ Hardware (In-Memory): {metrics.get('accuracy', 0):.2f}%")
 
     texto_final = "\n".join(out)
 
@@ -265,6 +269,7 @@ def main_compat():
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
     loss_fn = SF.mse_count_loss(correct_rate=0.8, incorrect_rate=0.2)
 
+    final_baseline_acc = 0.0
     acc = 0.0
     for epoch in range(args.epochs):
         for i, (data, targets) in enumerate(train_loader):
@@ -288,6 +293,9 @@ def main_compat():
 
                 draw_dashboard_compat("Entrenando Modelo SNN...", 0.1 + (i/args.iters)*0.4, args,
                                      train_info={'epoch': epoch+1, 'iter': i, 'loss': loss_val.item(), 'acc': acc})
+            final_baseline_acc = acc
+
+
 # Fase 2: Mapeo In-Memory y Simulación Física
     draw_dashboard_compat("Iniciando Fase 2: Mapeo y Simulación In-Memory...", 0.6, args)
 
@@ -302,7 +310,7 @@ def main_compat():
 
     ## --- 2. FLASHEO DE PESOS (MAPEO PYTORCH -> C++) ---
     draw_dashboard_compat("Mapeando pesos sinápticos al silicio...", 0.65, args)
-
+    synapse_map = {}
     # Funciones auxiliares para desenrollar las capas de PyTorch al silicio 1D
     def map_conv2d_to_noc(weight_matrix, in_shape, out_channels, k_size, src_routers, dst_routers, v_th, leak):
         in_ch, in_h, in_w = in_shape
@@ -312,6 +320,7 @@ def main_compat():
         # Diccionario para agrupar las sinapsis por neurona de origen
         # {src_neuron_idx: [Synapse(dst, weight), ...]}
         src_synapses = {}
+
 
         for oc in range(out_channels):
             for oh in range(out_h):
@@ -332,6 +341,11 @@ def main_compat():
                                     # Índice 1D de la neurona de origen
                                     src_neuron_idx = ic * (in_h * in_w) + src_h * in_w + src_w
 
+                                    if src_neuron_idx not in synapse_map:
+                                        synapse_map[src_neuron_idx] = []
+                                    if dst_router_id not in synapse_map[src_neuron_idx]:
+                                        synapse_map[src_neuron_idx].append(dst_router_id)
+
                                     if src_neuron_idx not in src_synapses:
                                         src_synapses[src_neuron_idx] = []
                                     src_synapses[src_neuron_idx].append(ncs.Synapse(dst_router_id, dst_neuron_idx, float(w_val)))
@@ -351,6 +365,10 @@ def main_compat():
             for src_idx in range(in_features):
                 w_val = weight_matrix[dst_idx, src_idx]
                 if abs(w_val) > 1e-5:
+                    if src_idx not in synapse_map:
+                        synapse_map[src_idx] = []
+                    if dst_router_id not in synapse_map[src_idx]:
+                        synapse_map[src_idx].append(dst_router_id)
                     src_synapses[src_idx].append(ncs.Synapse(dst_router_id, dst_idx, float(w_val)))
 
         for src_idx, synapses in src_synapses.items():
@@ -369,6 +387,8 @@ def main_compat():
         r_snn1 = nodes['snn1']
         r_snn2 = nodes['snn2']
         r_out = nodes['output']
+
+
 
         # 1. Mapeo Conv1 (Input -> SNN1)
         # Input shape de N-MNIST: 2 canales, 34x34
@@ -401,6 +421,7 @@ def main_compat():
     hw_correct = 0
 
     with torch.no_grad():
+        w_conv1_flat = net.conv1.weight.detach().cpu().numpy().flatten()
         for i in range(args.samples):
             data, target = testset[i]
             data = data.to(device).unsqueeze(1)
@@ -418,21 +439,24 @@ def main_compat():
 
                 for idx_num, idx_tensor in enumerate(idxs):
                     idx_original = idx_tensor.item()
-
+                    weight_real = float(w_conv1_flat[idx_original % len(w_conv1_flat)])
                     src = nodes['input'][idx_num % len(nodes['input'])]
 
-                    # --- CAMBIO 1: El destino es el propio nodo para despertar Conv1 ---
-                    dst = src
+                    destinos = synapse_map.get(idx_original, []) # synapse_map debería ser el dict que guardaste al mapear
 
-                    # --- CAMBIO 2: Le damos un peso masivo (10.0) para que supere la fuga (leak)
-                    # y obligue a la neurona de silicio a generar el Fan-Out
-                    flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, dst, src, int(t_base), 10.0, idx_original)
-                    network.getRouter(src).injectFlit(flit, int(t_base))
-                    # flit_id += 1
+                    if destinos:
+                        for dst in destinos:
+                            flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, dst, src, int(t_base), weight_real, idx_original)
+                            network.getRouter(src).injectFlit(flit, int(t_base))
+                            flit_id += 1 # Es importante incrementar el ID del flit para evitar colisiones
 
                 # --- B. SIMULACIÓN FÍSICA IN-MEMORY ---
                 tiempo_limite = t_base + CYCLES_PER_SNN_STEP
                 last_eval_time = -1 # <--- Añade esto antes del bucle
+                # --- AVISO: Sincronización de routers ---
+                tiempo_limite = t_base + CYCLES_PER_SNN_STEP
+                for r in range(args.dim * args.dim):
+                    network.getRouter(r).tiempo_limite_actual = tiempo_limite
 
                 # Bucle de ciclo de reloj
                 while not event_queue.isEmpty() and event_queue.getCurrentTime() < tiempo_limite:
@@ -441,7 +465,7 @@ def main_compat():
                     # Solo evaluamos si el reloj físico ha avanzado
                     if current_time > last_eval_time:
                         for r in range(args.dim * args.dim):
-                            network.getRouter(r).evaluateNeurons(current_time)
+                            network.getRouter(r).evaluateNeurons(current_time, tiempo_limite)
                         last_eval_time = current_time # Actualizamos la marca de tiempo
 
                     # El hardware procesa ruteo y colisiones (1 evento)
@@ -458,15 +482,10 @@ def main_compat():
             # --- NUEVO: CIERRE LÓGICO DE IA (Al terminar la imagen actual) ---
             # =====================================================================
 
-            # 1. Limpiamos los flits residuales de ESTA imagen en concreto
-            last_eval_time_res = -1
+            # 1. Limpiamos los flits residuales DESCARTÁNDOLOS (Restricción temporal estricta)
+            # Si el hardware (frecuencia) fue demasiado lento, los flits no llegan a sumar su voltaje.
             while not event_queue.isEmpty():
-                current_time = event_queue.getCurrentTime()
-                if current_time > last_eval_time_res:
-                    for r in range(args.dim * args.dim):
-                        network.getRouter(r).evaluateNeurons(current_time)
-                    last_eval_time_res = current_time
-                network.stepSimulation(1)
+                event_queue.getNextEvent() # Lo sacamos de la cola de C++ pero NO lo simulamos
 
             # 2. Leemos cuántos spikes generó cada neurona de salida (Clases 0 a 9)
             out_spikes = np.zeros(10)
@@ -494,6 +513,9 @@ def main_compat():
     energy_eff = real_total_flits / total_energy_uj if total_energy_uj > 0 else 0
     total_time_seconds = sim_t * period_ns * 1e-9
     temporal_perf = real_total_flits / total_time_seconds if total_time_seconds > 0 else 0
+    total_late_flits = 0
+    for r in range(args.dim * args.dim):
+        total_late_flits += network.getRouter(r).getLateFlits()
 
     hw_accuracy = (hw_correct / args.samples) * 100.0
 
@@ -503,12 +525,14 @@ def main_compat():
         "flits_inyectados": real_total_flits,
         "flits_eyectados": network.getTotalFlitsReceived(),
         "flits_procesados": network.getTotalForwarded(),
+        "late_flits": total_late_flits,
         "latency": network.getAvgLatency(),
         "buf_latency": network.getAvgBufferLatency(),
         "net_latency": network.getAvgNetworkLatency(),
         "jitter": network.getAvgJitter(),
         "energy": total_energy_uj,
-        "accuracy": hw_accuracy, # <--- Precisión evaluada puramente desde el hardware
+        "accuracy": hw_accuracy,           # La real del hardware
+        "baseline_accuracy": final_baseline_acc,
         "energy_eff": energy_eff,
         "temporal_perf": temporal_perf,
         "throughput": (network.getTotalFlitsReceived() / sim_t) / (args.dim**2) if sim_t > 0 else 0,

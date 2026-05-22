@@ -43,7 +43,7 @@ public:
 
     // --- NUEVO: Métodos públicos para mapear y evaluar neuronas de silicio ---
     void mapNeuron(int neuron_id, double v_th, double leak, const std::vector<Synapse>& synapses);
-    void evaluateNeurons(uint64_t current_time);
+    void evaluateNeurons(uint64_t current_time, uint64_t tiempo_limite);
 
     int getX() const { return x_coord; }
     int getY() const { return y_coord; }
@@ -53,6 +53,8 @@ public:
     uint64_t getFlitsInjected() const { return flits_injected; }
     uint64_t getFlitsForwarded() const { return flits_forwarded; }
     uint64_t getNeuronSpikeCount(int neuron_id) const;
+    uint64_t tiempo_limite_actual = 0; // Se actualiza antes de cada evaluación
+    uint64_t late_flits = 0;
     void resetNeuronsState();
     double getTotalLatency() const { return total_latency; }
     double getTotalLatencySq() const { return total_latency_sq; }
@@ -62,7 +64,8 @@ public:
     double getTotalBufferLatency() const { return total_buffer_latency; }
     double getAvgRamLatency() const { return flits_received > 0 ? (double)total_ram_latency / flits_received : 0; }
     double getAvgBufferLatency() const { return flits_received > 0 ? (double)total_buffer_latency / flits_received : 0; }
-    
+    uint64_t getLateFlits() const;
+
     double getAvgLatency() const { return flits_received > 0 ? (double)total_latency / flits_received : 0; }
     double getLatencyJitter() const { 
         if (flits_received < 2) return 0;
