@@ -1,6 +1,4 @@
-Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
-2_Escalabilidad,Malla_2x2,2,512,512,5,12908,51308,51308,51308,89708,321.69,320.20,1.50,169.78,0.000144,88.876897,577.29,693346,100.00,12
-2_Escalabilidad,Malla_4x4,4,512,512,5,12908,160062,160062,160062,476432,611.24,515.79,95.45,407.66,0.000113,89.206343,1794.29,2162966,100.00,17
-2_Escalabilidad,Malla_6x6,6,512,512,5,12908,263689,263689,263689,1117738,739.40,505.68,233.72,523.69,0.000082,89.751597,2937.99,3563304,100.00,27
-2_Escalabilidad,Malla_8x8,8,512,512,5,12908,211655,211655,211655,1132411,659.62,451.09,208.53,553.06,0.000037,89.763317,2357.92,2860178,100.00,29
-2_Escalabilidad,Malla_10x10,10,512,512,5,12908,157119,157119,157119,998777,495.93,336.60,159.33,431.70,0.000018,89.649986,1752.58,2123205,100.00,30
+Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Late_Flits,Lat_Total,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
+2_Escalabilidad,Malla_2x2,2,256,64,3,7,18,18,18,39,,244.15,241.96,2.19,162.80,0.000086,52.833489,342.55,411,100.00,9
+2_Escalabilidad,Malla_4x4,4,256,64,3,7,72,72,72,288,,657.00,557.05,99.95,457.07,0.000086,53.046068,1,1,100.00,14
+2_Escalabilidad,Malla_8x8,8,256,64,3,7,272,272,272,1,,1329.66,1005.35,324.32,940.07,0.000081,54.405498,5,6,100.00,41

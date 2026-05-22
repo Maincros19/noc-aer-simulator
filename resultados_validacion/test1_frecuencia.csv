@@ -1,9 +1,6 @@
-Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Lat_Total,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
-1_Frecuencia,Freq_0.01MHz,4,64,64,5,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,2
-1_Frecuencia,Freq_0.05MHz,4,64,64,5,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,2
-1_Frecuencia,Freq_0.1MHz,4,64,64,5,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,2
-1_Frecuencia,Freq_0.5MHz,4,64,64,5,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,2
-1_Frecuencia,Freq_1MHz,4,64,64,5,12908,30713,30713,30713,67605,67.45,59.76,7.69,46.14,0.025874,89.084264,344.76,413983,100.00,11
-1_Frecuencia,Freq_5MHz,4,64,64,5,12908,30713,30713,30713,67605,67.45,59.76,7.69,46.14,0.005185,88.902824,345.47,414829,100.00,11
-1_Frecuencia,Freq_10MHz,4,64,64,5,12908,30713,30713,30713,67605,67.45,59.76,7.69,46.14,0.002593,88.880144,345.56,414935,100.00,10
-1_Frecuencia,Freq_50MHz,4,64,64,5,12908,30713,30713,30713,67605,67.45,59.76,7.69,46.14,0.000519,88.862000,345.63,415019,100.00,10
+Fase,Escenario,Dim_Malla,Buffer_Iny,Buffer_Red,Muestras,Spikes_Gen,Flits_Gen,Flits_Iny,Flits_Eyect,Flits_Proc,Late_Flits,Lat_Total,Lat_Buf,Lat_Red,Jitter,Throughput,Energia_uJ,Eficiencia,Perf_Absoluto,Precision_IA,Tiempo_Test_s
+1_Frecuencia,Freq_0.1MHz,4,128,32,3,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,NaN,2
+1_Frecuencia,Freq_1MHz,4,128,32,3,7,72,72,19,80,,1595.77,1511.65,84.12,1191.40,0.028324,52.868147,1,1,100.00,10
+1_Frecuencia,Freq_10MHz,4,128,32,3,7,72,72,72,288,,680.89,614.90,65.98,474.39,0.010258,53.136873,1,1,100.00,14
+1_Frecuencia,Freq_100MHz,4,128,32,3,7,72,72,72,288,,680.89,614.90,65.98,474.39,0.001027,53.054469,1,1,100.00,14
+1_Frecuencia,Freq_1200MHz,4,128,32,3,7,72,72,72,288,,680.89,614.90,65.98,474.39,0.000086,53.046076,1,1,100.00,14
