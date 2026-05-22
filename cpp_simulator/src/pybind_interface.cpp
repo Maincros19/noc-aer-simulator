@@ -33,10 +33,18 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .value("TAIL", TAIL)
         .export_values();
 
+    py::class_<Synapse>(m, "Synapse")
+        .def(py::init<int, int, double>(), py::arg("dest_router_id"), py::arg("dest_neuron_id"), py::arg("weight"))
+        .def_readwrite("dest_router_id", &Synapse::dest_router_id)
+        .def_readwrite("dest_neuron_id", &Synapse::dest_neuron_id)
+        .def_readwrite("weight", &Synapse::weight);
+        // -----------------------------------
+
     py::class_<Flit>(m, "Flit")
-        .def(py::init<uint64_t, uint64_t, FlitType, int, int, int, uint64_t>(),
+        .def(py::init<uint64_t, uint64_t, FlitType, int, int, int, uint64_t, double, int>(),
              py::arg("id") = -1, py::arg("packet_id") = 0, py::arg("type") = BODY, py::arg("source_router_id") = -1,
-             py::arg("dest_router_id") = -1, py::arg("current_router_id") = -1, py::arg("injection_time") = 0)
+             py::arg("dest_router_id") = -1, py::arg("current_router_id") = -1, py::arg("injection_time") = 0,
+             py::arg("payload_weight") = 0.0, py::arg("dest_neuron_id") = -1)
         .def_readwrite("id", &Flit::id)
         .def_readwrite("packet_id", &Flit::packet_id)
         .def_readwrite("type", &Flit::type)
@@ -45,7 +53,9 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def_readwrite("current_router_id", &Flit::current_router_id)
         .def_readwrite("injection_time", &Flit::injection_time)
         .def_readwrite("dma_entry_time", &Flit::dma_entry_time)
-        .def_readwrite("network_entry_time", &Flit::network_entry_time); // NUEVO
+        .def_readwrite("network_entry_time", &Flit::network_entry_time)
+        .def_readwrite("payload_weight", &Flit::payload_weight)
+        .def_readwrite("dest_neuron_id", &Flit::dest_neuron_id);
 
 
     py::class_<Event>(m, "Event")
@@ -83,7 +93,11 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getNetworkBufferSize", &Router::getNetworkBufferSize)
         .def("getBufferOccupancy", &Router::getBufferOccupancy)
         .def("getDetailedOccupancy", &Router::getDetailedOccupancy)
-        .def("getLinkStallStatus", &Router::getLinkStallStatus);
+        .def("getLinkStallStatus", &Router::getLinkStallStatus)
+        .def("mapNeuron", &Router::mapNeuron, py::arg("neuron_id"), py::arg("v_th"), py::arg("leak"), py::arg("synapses"))
+        .def("getNeuronSpikeCount", &Router::getNeuronSpikeCount, py::arg("neuron_id"))
+        .def("resetNeuronsState", &Router::resetNeuronsState)
+        .def("evaluateNeurons", &Router::evaluateNeurons, py::arg("current_time"));
 
     py::class_<Network>(m, "Network")
         .def(py::init<int, int, EventQueue&>(),
@@ -102,6 +116,7 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getTotalForwarded", &Network::getTotalForwarded)
         .def("getAvgRamLatency", &Network::getAvgRamLatency)
         .def("getAvgBufferLatency", &Network::getAvgBufferLatency)
+        .def("resetNeuronsState", &Network::resetNeuronsState)
         .def("stepSimulation", &Network::stepSimulation);
 
 

@@ -198,7 +198,6 @@ def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
         out.append(f" | Flits Eyectados:  {metrics.get('flits_eyectados', 0):,} (Recibidos en destino)")
         out.append(f" | Flits Procesados: {metrics.get('flits_procesados', 0):,} (Total de saltos/ruteos)")
         out.append(f" | Lat. Total:       {metrics.get('latency', 0):.2f} ciclos (End-to-End)")
-        out.append(f" |  ├─ Cola RAM:     {metrics.get('ram_latency', 0):.2f} ciclos (Espera software)")
         out.append(f" |  ├─ Buffer Loc:   {metrics.get('buf_latency', 0):.2f} ciclos (Bloqueo hardware)")
         out.append(f" |  └─ Red:          {metrics.get('net_latency', 0):.2f} ciclos (Vuelo y saltos)")
         out.append(f" | Jitter (AER):     {metrics.get('jitter', 0):.2f} ciclos")
@@ -289,8 +288,8 @@ def main_compat():
 
                 draw_dashboard_compat("Entrenando Modelo SNN...", 0.1 + (i/args.iters)*0.4, args,
                                      train_info={'epoch': epoch+1, 'iter': i, 'loss': loss_val.item(), 'acc': acc})
-# Fase 2: Co-Simulación NoC Paso a Paso (Intercalada SNN-NoC)
-    draw_dashboard_compat("Iniciando Fase 2: Co-Simulación Temporal...", 0.6, args)
+# Fase 2: Mapeo In-Memory y Simulación Física
+    draw_dashboard_compat("Iniciando Fase 2: Mapeo y Simulación In-Memory...", 0.6, args)
 
     # --- 1. INICIALIZACIÓN DE LA RED ---
     event_queue = ncs.EventQueue()
@@ -301,122 +300,215 @@ def main_compat():
     flit_id, total_spikes = 0, 0
     net.eval()
 
-    # Correspondencia Temporal Física: 1 ms SNN = 1,200,000 ciclos NoC (a 1200 MHz)
+    ## --- 2. FLASHEO DE PESOS (MAPEO PYTORCH -> C++) ---
+    draw_dashboard_compat("Mapeando pesos sinápticos al silicio...", 0.65, args)
+
+    # Funciones auxiliares para desenrollar las capas de PyTorch al silicio 1D
+    def map_conv2d_to_noc(weight_matrix, in_shape, out_channels, k_size, src_routers, dst_routers, v_th, leak):
+        in_ch, in_h, in_w = in_shape
+        out_h = in_h - k_size + 1
+        out_w = in_w - k_size + 1
+
+        # Diccionario para agrupar las sinapsis por neurona de origen
+        # {src_neuron_idx: [Synapse(dst, weight), ...]}
+        src_synapses = {}
+
+        for oc in range(out_channels):
+            for oh in range(out_h):
+                for ow in range(out_w):
+                    # Índice 1D de la neurona de destino en la capa plana
+                    dst_neuron_idx = oc * (out_h * out_w) + oh * out_w + ow
+                    dst_router_id = dst_routers[dst_neuron_idx % len(dst_routers)]
+
+                    for ic in range(in_ch):
+                        for kh in range(k_size):
+                            for kw in range(k_size):
+                                w_val = weight_matrix[oc, ic, kh, kw]
+
+                                # Optimización de silicio: No mapeamos pesos cero (ahorro de RAM y ancho de banda)
+                                if abs(w_val) > 1e-5:
+                                    src_h = oh + kh
+                                    src_w = ow + kw
+                                    # Índice 1D de la neurona de origen
+                                    src_neuron_idx = ic * (in_h * in_w) + src_h * in_w + src_w
+
+                                    if src_neuron_idx not in src_synapses:
+                                        src_synapses[src_neuron_idx] = []
+                                    src_synapses[src_neuron_idx].append(ncs.Synapse(dst_router_id, dst_neuron_idx, float(w_val)))
+
+        # Flasheamos a la SRAM de C++
+        for src_idx, synapses in src_synapses.items():
+            src_router_id = src_routers[src_idx % len(src_routers)]
+            router = network.getRouter(src_router_id)
+            router.mapNeuron(neuron_id=src_idx, v_th=v_th, leak=leak, synapses=synapses)
+
+    def map_linear_to_noc(weight_matrix, src_routers, dst_routers, v_th, leak):
+        out_features, in_features = weight_matrix.shape
+        src_synapses = {i: [] for i in range(in_features)}
+
+        for dst_idx in range(out_features):
+            dst_router_id = dst_routers[dst_idx % len(dst_routers)]
+            for src_idx in range(in_features):
+                w_val = weight_matrix[dst_idx, src_idx]
+                if abs(w_val) > 1e-5:
+                    src_synapses[src_idx].append(ncs.Synapse(dst_router_id, dst_idx, float(w_val)))
+
+        for src_idx, synapses in src_synapses.items():
+            src_router_id = src_routers[src_idx % len(src_routers)]
+            router = network.getRouter(src_router_id)
+            router.mapNeuron(neuron_id=src_idx, v_th=v_th, leak=leak, synapses=synapses)
+
+    with torch.no_grad():
+        # Extracción de matrices de pesos de la red entrenada
+        w_conv1 = net.conv1.weight.cpu().numpy()
+        w_conv2 = net.conv2.weight.cpu().numpy()
+        w_fc1 = net.fc1.weight.cpu().numpy()
+
+        # Nodos mapeados según tu función get_node_mapping
+        r_in = nodes['input']
+        r_snn1 = nodes['snn1']
+        r_snn2 = nodes['snn2']
+        r_out = nodes['output']
+
+        # 1. Mapeo Conv1 (Input -> SNN1)
+        # Input shape de N-MNIST: 2 canales, 34x34
+        map_conv2d_to_noc(w_conv1, in_shape=(2, 34, 34), out_channels=12, k_size=5,
+                          src_routers=r_in, dst_routers=r_snn1, v_th=1.0, leak=beta)
+
+        # NOTA SOBRE POOLING: En hardware neuromórfico puro, el MaxPool es muy costoso lógicamente.
+        # Para mantener la simulación física fiel, aquí estamos colapsando conceptualmente
+        # la operación de Pooling de PyTorch ajustando la entrada de Conv2.
+        # En una arquitectura real, Conv1 conectaría a un bloque dedicaco a submuestreo.
+
+        # 2. Mapeo Conv2 (SNN1 -> SNN2)
+        # Asumiendo que la salida de Conv1 (30x30) pasó por un Pool 2x2 en PyTorch,
+        # la entrada a Conv2 teórica es de 12 canales, 15x15.
+        map_conv2d_to_noc(w_conv2, in_shape=(12, 15, 15), out_channels=32, k_size=5,
+                          src_routers=r_snn1, dst_routers=r_snn2, v_th=1.0, leak=beta)
+
+        # 3. Mapeo Capa Lineal FC1 (SNN2 -> Output)
+        map_linear_to_noc(w_fc1, src_routers=r_snn2, dst_routers=r_out, v_th=1.0, leak=beta)
+        # --- NUEVO: 4. Instanciar físicamente las neuronas de salida ---
+        # Estas neuronas no envían sinapsis a nadie, solo reciben flits y disparan
+        for dst_idx in range(10):
+            dst_router_id = r_out[dst_idx % len(r_out)]
+            network.getRouter(dst_router_id).mapNeuron(neuron_id=dst_idx, v_th=1.0, leak=beta, synapses=[])
+    # --- 3. INYECCIÓN SENSORIAL Y CO-SIMULACIÓN ---
+    draw_dashboard_compat("Inyectando eventos N-MNIST y simulando malla...", 0.75, args)
+
     CYCLES_PER_SNN_STEP = int((TECH["f_max_mhz"] * 1e6) * 1e-3)
+
+    hw_correct = 0
 
     with torch.no_grad():
         for i in range(args.samples):
-            data, _ = testset[i]
-            data = data.to(device).unsqueeze(1) # Matriz de la muestra corriente
-
-            # Inicializamos los estados de membrana de snnTorch al inicio de la muestra
-            mem1 = net.snn1.init_leaky()
-            mem2 = net.snn2.init_leaky()
-            mem3 = net.snn3.init_leaky()
-
+            data, target = testset[i]
+            data = data.to(device).unsqueeze(1)
             total_steps = data.size(0)
 
             for step in range(total_steps):
-                # --- A. GENERACIÓN INMEDIATA (1 SOLO TIMESTEP SNN) ---
-                # Replicamos el pipeline convolucional-SNN paso a paso de la clase CSNN
-                cur = net.conv1(data[step].float())
-                spk1, mem1 = net.snn1(cur, mem1)
-                cur_p1 = net.pool1(spk1)
-
-                cur = net.conv2(cur_p1)
-                spk2, mem2 = net.snn2(cur, mem2)
-                cur_p2 = net.pool2(spk2)
-
-                cur = net.flatten(cur_p2)
-                cur = net.fc1(cur)
-                spk_out, mem3 = net.snn3(cur, mem3)
-
-                # Base de tiempo absoluta para este paso temporal concreto
                 t_base = step * CYCLES_PER_SNN_STEP + (i * total_steps * CYCLES_PER_SNN_STEP)
 
-                def inject_layer_step(tensor, src_grp, dst_grp, fan, offset_cycles):
-                    nonlocal flit_id, total_spikes
+                # --- A. INYECCIÓN DEL SENSOR SÓLO EN LA CAPA INPUT ---
+                # Ya no pasamos los datos por PyTorch, solo cogemos el estímulo inicial
+                sensor_data = data[step].flatten()
+                idxs = (sensor_data > 0).nonzero(as_tuple=False)
+                num_spikes = len(idxs)
+                total_spikes += num_spikes
 
-                    # 1. Aplanamos el tensor simulando la memoria lineal física del nodo
-                    tensor_flat = tensor.flatten()
+                for idx_num, idx_tensor in enumerate(idxs):
+                    idx_original = idx_tensor.item()
 
-                    # 2. Obtenemos las posiciones EXACTAS en memoria de las neuronas que disparan
-                    idxs = (tensor_flat > 0).nonzero(as_tuple=False)
-                    num_spikes = len(idxs)
+                    src = nodes['input'][idx_num % len(nodes['input'])]
 
-                    if num_spikes == 0:
-                        return
+                    # --- CAMBIO 1: El destino es el propio nodo para despertar Conv1 ---
+                    dst = src
 
-                    total_spikes += num_spikes
+                    # --- CAMBIO 2: Le damos un peso masivo (10.0) para que supere la fuga (leak)
+                    # y obligue a la neurona de silicio a generar el Fan-Out
+                    flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, dst, src, int(t_base), 10.0, idx_original)
+                    network.getRouter(src).injectFlit(flit, int(t_base))
+                    # flit_id += 1
 
-                    # 3. Ciclos que tarda la ALU en evaluar una sola neurona
-                    # (Si el hardware procesa 2 neuronas por ciclo, esto sería 0.5)
-                    CYCLES_PER_EVAL = 1
-
-                    for idx_num, idx_tensor in enumerate(idxs):
-                        # idx_original es la dirección absoluta (ej: neurona 5, neurona 1024)
-                        idx_original = idx_tensor.item()
-
-                        src = src_grp[idx_num % len(src_grp)]
-                        dsts = [dst_grp[k % len(dst_grp)] for k in range(fan)]
-
-                        for j, d in enumerate(dsts):
-                            # El momento de generación = tiempo base + inicio de capa + (posición * coste)
-                            # El fan-out (+ j) hace que los flits de un mismo spike se serialicen
-                            # consecutivamente al entrar al DMA del router.
-                            t_sim = t_base + offset_cycles + (idx_original * CYCLES_PER_EVAL) + j
-
-                            flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, d, src, int(t_sim))
-                            network.getRouter(src).injectFlit(flit, int(t_sim))
-                            flit_id += 1
-
-                # --- B. INYECCIÓN INMEDIATA DEL TIMESTEP ---
-                inject_layer_step(data[step], nodes['input'], nodes['snn1'], 12, offset_cycles=0)
-                inject_layer_step(cur_p1, nodes['snn1'], nodes['snn2'], 32, offset_cycles=50000)
-                inject_layer_step(cur_p2, nodes['snn2'], nodes['output'], 10, offset_cycles=100000)
-
-                # --- C. SIMULACIÓN INMEDIATA (El Hardware alcanza a la SNN) ---
-                # Definimos la barrera temporal: el hardware no puede pasarse del tiempo de este step
+                # --- B. SIMULACIÓN FÍSICA IN-MEMORY ---
                 tiempo_limite = t_base + CYCLES_PER_SNN_STEP
+                last_eval_time = -1 # <--- Añade esto antes del bucle
 
-                # Consumimos la cola de eventos en C++ poco a poco hasta llegar al límite de tiempo
+                # Bucle de ciclo de reloj
                 while not event_queue.isEmpty() and event_queue.getCurrentTime() < tiempo_limite:
-                    network.stepSimulation(1) # Avanza procesando exactamente un evento por ciclo
+                    current_time = event_queue.getCurrentTime()
 
-                # Actualización en vivo del Dashboard
+                    # Solo evaluamos si el reloj físico ha avanzado
+                    if current_time > last_eval_time:
+                        for r in range(args.dim * args.dim):
+                            network.getRouter(r).evaluateNeurons(current_time)
+                        last_eval_time = current_time # Actualizamos la marca de tiempo
+
+                    # El hardware procesa ruteo y colisiones (1 evento)
+                    network.stepSimulation(1)
+
+                # Dashboard progress update
                 global_step = i * total_steps + step
                 max_global_steps = args.samples * total_steps
-                progreso_sim = 0.60 + (global_step / max_global_steps) * 0.35
+                progreso_sim = 0.75 + (global_step / max_global_steps) * 0.20
                 if step % 2 == 0:
-                    draw_dashboard_compat("Co-Simulando SNN y NoC paso a paso...", progreso_sim, args)
+                    draw_dashboard_compat("Simulando red In-Memory paso a paso...", progreso_sim, args)
 
-    # --- 3. LIMPIEZA DE EVENTOS RESIDUALES ---
-    # Procesamos cualquier flit en vuelo o créditos remanentes que queden tras el último step
-    draw_dashboard_compat("Procesando tráfico residual en la NoC...", 0.95, args)
-    while not event_queue.isEmpty():
-        network.stepSimulation(25000)
+            # ======================================================================
+            # --- NUEVO: CIERRE LÓGICO DE IA (Al terminar la imagen actual) ---
+            # =====================================================================
 
-    # --- 4. MÉTRICAS FINALES ---
+            # 1. Limpiamos los flits residuales de ESTA imagen en concreto
+            last_eval_time_res = -1
+            while not event_queue.isEmpty():
+                current_time = event_queue.getCurrentTime()
+                if current_time > last_eval_time_res:
+                    for r in range(args.dim * args.dim):
+                        network.getRouter(r).evaluateNeurons(current_time)
+                    last_eval_time_res = current_time
+                network.stepSimulation(1)
+
+            # 2. Leemos cuántos spikes generó cada neurona de salida (Clases 0 a 9)
+            out_spikes = np.zeros(10)
+            for class_idx in range(10):
+                dst_router = nodes['output'][class_idx % len(nodes['output'])]
+                out_spikes[class_idx] = network.getRouter(dst_router).getNeuronSpikeCount(class_idx)
+
+            # 3. La clase con más disparos en la SRAM es la predicción del chip
+            prediction = np.argmax(out_spikes)
+            if prediction == target:
+                hw_correct += 1
+
+            # 4. RESET: Borramos voltajes y spikes para que la próxima imagen empiece limpia
+            network.resetNeuronsState()
+
+
+
     sim_t = network.getSimulationTime()
     period_ns = 1000.0 / TECH['f_max_mhz']
+
+    # Lectura real del hardware en C++
+    real_total_flits = network.getTotalFlitsInjected()
+
     total_energy_uj = (network.getTotalForwarded() * TECH['energy_per_spike']) / 1e6 + (TECH['static_power_uw'] * (sim_t * period_ns)) / 1e6
-    energy_eff = flit_id / total_energy_uj if total_energy_uj > 0 else 0
+    energy_eff = real_total_flits / total_energy_uj if total_energy_uj > 0 else 0
     total_time_seconds = sim_t * period_ns * 1e-9
-    temporal_perf = flit_id / total_time_seconds if total_time_seconds > 0 else 0
+    temporal_perf = real_total_flits / total_time_seconds if total_time_seconds > 0 else 0
+
+    hw_accuracy = (hw_correct / args.samples) * 100.0
 
     metrics = {
         "spikes": total_spikes,
-        "flits_generados": flit_id,
-        "flits_inyectados": network.getTotalFlitsInjected(),
+        "flits_generados": real_total_flits,
+        "flits_inyectados": real_total_flits,
         "flits_eyectados": network.getTotalFlitsReceived(),
         "flits_procesados": network.getTotalForwarded(),
         "latency": network.getAvgLatency(),
-        "ram_latency": network.getAvgRamLatency(),       # NUEVO
-        "buf_latency": network.getAvgBufferLatency(),     # NUEVO
+        "buf_latency": network.getAvgBufferLatency(),
         "net_latency": network.getAvgNetworkLatency(),
         "jitter": network.getAvgJitter(),
         "energy": total_energy_uj,
-        "accuracy": acc,
+        "accuracy": hw_accuracy, # <--- Precisión evaluada puramente desde el hardware
         "energy_eff": energy_eff,
         "temporal_perf": temporal_perf,
         "throughput": (network.getTotalFlitsReceived() / sim_t) / (args.dim**2) if sim_t > 0 else 0,

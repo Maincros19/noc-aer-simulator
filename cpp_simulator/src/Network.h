@@ -16,6 +16,7 @@ public:
     void runSimulation();
     void stepSimulation(int num_events);
     void handleEvent(const Event& event);
+    void resetNeuronsState();
 
     // Aggregate Metrics
     uint64_t getTotalFlitsInjected() const;

@@ -60,7 +60,7 @@ void Network::handleEvent(const Event& event) {
                 router->setProcessingScheduled(true);
             }
         } else if (event.type == SOURCE_INJECTION) {
-            router->addPendingInjection(event.flit, current_time);
+            router->receiveFlit(event.flit, LOCAL, current_time);
         }
     }
 }
@@ -174,4 +174,9 @@ double Network::getAvgBufferLatency() const {
         total_rec += router->getFlitsReceived();
     }
     return total_rec > 0 ? total_buf_sum / total_rec : 0;
+}
+void Network::resetNeuronsState() {
+    for (auto const& [id, router] : routers) {
+        router->resetNeuronsState();
+    }
 }

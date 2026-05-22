@@ -20,6 +20,54 @@ Router::Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq)
     }
 }
 
+// --- NUEVO: Función para que Python guarde los pesos en la SRAM del router ---
+void Router::mapNeuron(int neuron_id, double v_th, double leak, const std::vector<Synapse>& synapses) {
+    LogicalNeuron n;
+    n.neuron_id = neuron_id;
+    n.v_mem = 0.0; // Inicia en potencial de reposo
+    n.v_th = v_th;
+    n.leak_factor = leak;
+    n.synapses = synapses;
+    n.spike_count = 0;
+    local_neurons.push_back(n);
+}
+
+void Router::evaluateNeurons(uint64_t current_time) {
+    bool generated_spikes = false;
+
+    for (auto& n : local_neurons) {
+        n.v_mem *= n.leak_factor; // Fuga (Leaky)
+
+        if (n.v_mem >= n.v_th) {
+            n.v_mem = 0.0; // Reset tras disparar
+            n.spike_count++; // <--- NUEVO: Registramos que esta neurona ha disparado
+
+            for (auto& syn : n.synapses) {
+                uint64_t flit_id_global = ((uint64_t)this->id << 32) | (flit_id_counter++);
+                Flit flit(flit_id_global, 0, BODY, this->id, syn.dest_router_id, this->id, current_time, syn.weight, syn.dest_neuron_id);
+
+                // En In-Memory, el flit nace directamente en el silicio
+                flit.dma_entry_time = current_time;
+                flit.network_entry_time = current_time;
+
+                if (input_buffers[LOCAL].size() < max_injection_buffer_size) {
+                    input_buffers[LOCAL].push(flit);
+                    generated_spikes = true;
+                    flits_injected++;
+                } else {
+                    flits_dropped++;
+                }
+            }
+        }
+    }
+
+    // Si el hardware interno inyectó flits, debemos programar el router para que los enrute
+    if (generated_spikes && !is_processing_scheduled) {
+        event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
+        is_processing_scheduled = true;
+    }
+}
+
 void Router::receiveFlit(Flit flit, Port in_port, uint64_t current_time) {
     input_buffers[in_port].push(flit);
 
@@ -45,12 +93,12 @@ void Router::processFlit(uint64_t current_time) {
 
     // --- NUEVO: HARDWARE DMA INJECTION ---
     // Transferimos 1 paquete por ciclo de la RAM al Búfer Físico (si hay espacio)
-    if (!pending_injections.empty() && input_buffers[LOCAL].size() < max_injection_buffer_size) {
-        Flit flit = pending_injections.front();
-        flit.dma_entry_time = current_time; // <--- Captura el ciclo de entrada al silicio
-        input_buffers[LOCAL].push(flit);
-        pending_injections.pop();
-    }
+    // if (!pending_injections.empty() && input_buffers[LOCAL].size() < max_injection_buffer_size) {
+        // Flit flit = pending_injections.front();
+        // flit.dma_entry_time = current_time; // <--- Captura el ciclo de entrada al silicio
+        // input_buffers[LOCAL].push(flit);
+        // pending_injections.pop();
+    // }
 
     Port in_port = arbitrate();
     if (in_port == NUM_PORTS) return;
@@ -77,7 +125,9 @@ void Router::processFlit(uint64_t current_time) {
     // Si el flit viene del puerto LOCAL (inyección), guardamos el ciclo exacto
     // en el que logra salir a la malla.
     if (in_port == LOCAL) {
-        flit.network_entry_time = current_time;
+        if (flit.network_entry_time == flit.injection_time) {
+            flit.network_entry_time = current_time;
+        }
     }
 
     flits_forwarded++;
@@ -110,7 +160,7 @@ void Router::processFlit(uint64_t current_time) {
     }
 
     // NUEVO: Nos reprogramamos si hay flits en red O si quedan inyecciones pendientes en RAM
-    if ((has_more_flits || !pending_injections.empty()) && !is_processing_scheduled) {
+    if (has_more_flits && !is_processing_scheduled) {
         event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
         is_processing_scheduled = true;
     }
@@ -161,6 +211,15 @@ void Router::switchFlit(Flit flit, Port out_port, uint64_t current_time) {
             total_buffer_latency += buf_lat;
             total_network_latency += net_lat;
             total_injection_latency += inj_lat;
+
+            // --- NUEVO: CIERRE LÓGICO IN-MEMORY ---
+            // Buscamos la neurona de destino en la SRAM local y le sumamos el peso del flit
+            for (auto& n : local_neurons) {
+                if (n.neuron_id == flit.dest_neuron_id) {
+                    n.v_mem += flit.payload_weight;
+                    break; // Salimos del bucle una vez que encontramos la neurona
+                }
+            }
         }
 
     } else {
@@ -193,11 +252,24 @@ void Router::setBufferSizes(int inj_size, int net_size) {
 bool Router::canAcceptLocalFlit() {
     return input_buffers[LOCAL].size() < max_injection_buffer_size;
 }
-void Router::addPendingInjection(Flit flit, uint64_t current_time) {
-    pending_injections.push(flit);
+// void Router::addPendingInjection(Flit flit, uint64_t current_time) {
+    // pending_injections.push(flit);
     // Si el router estaba dormido, lo despertamos para que empiece a inyectar
-    if (!is_processing_scheduled) {
-        event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
-        is_processing_scheduled = true;
+    // if (!is_processing_scheduled) {
+        // event_queue.addEvent(Event(current_time + 1, ROUTER_PROCESSING, id, id));
+        // is_processing_scheduled = true;
+    // }
+// }
+uint64_t Router::getNeuronSpikeCount(int neuron_id) const {
+    for (const auto& n : local_neurons) {
+        if (n.neuron_id == neuron_id) return n.spike_count;
+    }
+    return 0; // Si no existe, no ha disparado
+}
+
+void Router::resetNeuronsState() {
+    for (auto& n : local_neurons) {
+        n.v_mem = 0.0;
+        n.spike_count = 0;
     }
 }

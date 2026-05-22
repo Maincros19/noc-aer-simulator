@@ -9,6 +9,27 @@
 #include "EventQueue.h"
 #include "Port.h"
 
+struct Synapse {
+    int dest_router_id;
+    int dest_neuron_id; // <--- Este es el campo nuevo que le falta
+    double weight;
+
+    // Constructor actualizado con los 3 parámetros
+    Synapse(int dest_r_id, int dest_n_id, double w)
+    : dest_router_id(dest_r_id), dest_neuron_id(dest_n_id), weight(w) {}
+};
+
+struct LogicalNeuron {
+    int neuron_id;
+    double v_mem;
+    double v_th;
+    double leak_factor;
+    std::vector<Synapse> synapses;
+    uint64_t spike_count; // <--- NUEVO: Contador de disparos de esta neurona
+};
+
+
+
 class Router {
 public:
     Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq);
@@ -20,6 +41,10 @@ public:
     bool isProcessingScheduled() const { return is_processing_scheduled; }
     void setProcessingScheduled(bool scheduled) { is_processing_scheduled = scheduled; }
 
+    // --- NUEVO: Métodos públicos para mapear y evaluar neuronas de silicio ---
+    void mapNeuron(int neuron_id, double v_th, double leak, const std::vector<Synapse>& synapses);
+    void evaluateNeurons(uint64_t current_time);
+
     int getX() const { return x_coord; }
     int getY() const { return y_coord; }
     int getId() const { return id; }
@@ -27,6 +52,8 @@ public:
     uint64_t getFlitsReceived() const { return flits_received; }
     uint64_t getFlitsInjected() const { return flits_injected; }
     uint64_t getFlitsForwarded() const { return flits_forwarded; }
+    uint64_t getNeuronSpikeCount(int neuron_id) const;
+    void resetNeuronsState();
     double getTotalLatency() const { return total_latency; }
     double getTotalLatencySq() const { return total_latency_sq; }
     double getTotalInjectionLatency() const { return total_injection_latency; }
@@ -48,7 +75,7 @@ public:
     bool canAcceptLocalFlit();
     int getInjectionBufferSize() const { return max_injection_buffer_size; }
     int getNetworkBufferSize() const { return max_network_buffer_size; }
-    void addPendingInjection(Flit flit, uint64_t current_time);
+    //void addPendingInjection(Flit flit, uint64_t current_time);
 
     int getBufferOccupancy() const {
         int total = 0;
@@ -78,6 +105,7 @@ public:
         return stalls;
     }
 
+
 private:
     int id;
     int x_coord;
@@ -87,6 +115,10 @@ private:
     EventQueue& event_queue;
     int max_injection_buffer_size;
     int max_network_buffer_size;
+
+    // --- NUEVO: Memoria SRAM estática de las neuronas y contador local ---
+    std::vector<LogicalNeuron> local_neurons;
+    uint64_t flit_id_counter = 0;
 
     // Buffers de entrada para cada puerto
     std::map<Port, std::queue<Flit>> input_buffers;
@@ -111,7 +143,7 @@ private:
     Port arbitrate();
     void switchFlit(Flit flit, Port out_port, uint64_t current_time);
 
-    std::queue<Flit> pending_injections;
+    //std::queue<Flit> pending_injections;
 };
 
 #endif
