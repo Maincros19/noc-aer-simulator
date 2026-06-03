@@ -205,6 +205,8 @@ def draw_dashboard_compat(phase, progress, args, metrics=None, train_info=None):
         out.append(f" | Energia Total:    {metrics.get('energy', 0):.6f} uJ")
         out.append(f" | Eficiencia:       {metrics.get('energy_eff', 0):,.2f} flits/uJ")
         out.append(f" | Throughput Físico:{metrics.get('temporal_perf', 0):,.0f} flits/s")
+        out.append(f" | Ciclos Medios/Inf:{metrics.get('ciclos_medios', 0):,.0f} ciclos")
+        out.append(f" | Ciclos Simulador: {metrics.get('ciclos_simulacion', 0):,.0f} ciclos")
         late = metrics.get('late_flits', 0)
         if late > 0:
             out.append(f" | ⚠️ ALERTA: {late:,} flits descartados por latencia (Violación temporal)")
@@ -419,6 +421,8 @@ def main_compat():
     CYCLES_PER_SNN_STEP = int((TECH["f_max_mhz"] * 1e6) * 1e-3)
 
     hw_correct = 0
+    ciclos_por_inferencia = []
+    tiempo_acumulado_anterior = 0
 
     with torch.no_grad():
         w_conv1_flat = net.conv1.weight.detach().cpu().numpy().flatten()
@@ -482,23 +486,30 @@ def main_compat():
             # --- NUEVO: CIERRE LÓGICO DE IA (Al terminar la imagen actual) ---
             # =====================================================================
 
-            # 1. Limpiamos los flits residuales DESCARTÁNDOLOS (Restricción temporal estricta)
+            # 1. Calculo de ciclos de la inferencia
+            tiempo_actual_acumulado = network.getSimulationTime()
+            ciclos_esta_inferencia = tiempo_actual_acumulado - tiempo_acumulado_anterior
+            ciclos_por_inferencia.append(ciclos_esta_inferencia)
+            tiempo_acumulado_anterior = tiempo_actual_acumulado
+
+
+            # 2. Limpiamos los flits residuales DESCARTÁNDOLOS (Restricción temporal estricta)
             # Si el hardware (frecuencia) fue demasiado lento, los flits no llegan a sumar su voltaje.
             while not event_queue.isEmpty():
                 event_queue.getNextEvent() # Lo sacamos de la cola de C++ pero NO lo simulamos
 
-            # 2. Leemos cuántos spikes generó cada neurona de salida (Clases 0 a 9)
+            # 3. Leemos cuántos spikes generó cada neurona de salida (Clases 0 a 9)
             out_spikes = np.zeros(10)
             for class_idx in range(10):
                 dst_router = nodes['output'][class_idx % len(nodes['output'])]
                 out_spikes[class_idx] = network.getRouter(dst_router).getNeuronSpikeCount(class_idx)
 
-            # 3. La clase con más disparos en la SRAM es la predicción del chip
+            # 4. La clase con más disparos en la SRAM es la predicción del chip
             prediction = np.argmax(out_spikes)
             if prediction == target:
                 hw_correct += 1
 
-            # 4. RESET: Borramos voltajes y spikes para que la próxima imagen empiece limpia
+            # 5. RESET: Borramos voltajes y spikes para que la próxima imagen empiece limpia
             network.resetNeuronsState()
 
 
@@ -516,6 +527,8 @@ def main_compat():
     total_late_flits = 0
     for r in range(args.dim * args.dim):
         total_late_flits += network.getRouter(r).getLateFlits()
+
+    ciclos_medios = sum(ciclos_por_inferencia) / len(ciclos_por_inferencia) if ciclos_por_inferencia else 0
 
     hw_accuracy = (hw_correct / args.samples) * 100.0
 
@@ -536,6 +549,8 @@ def main_compat():
         "energy_eff": energy_eff,
         "temporal_perf": temporal_perf,
         "throughput": (network.getTotalFlitsReceived() / sim_t) / (args.dim**2) if sim_t > 0 else 0,
+        "ciclos_medios": ciclos_medios,
+        "ciclos_simulacion": sim_t,
     }
 
     draw_dashboard_compat("Simulación Completada ✅", 1.0, args, metrics=metrics)
