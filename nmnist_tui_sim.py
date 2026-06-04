@@ -88,6 +88,15 @@ def generate_simulation_video(frames_dir, output_name="noc_heatmap.mp4"):
 
 def save_heatmap(network, dim, current_time, frames_dir, net_buffer_size):
     plt.style.use('dark_background')
+    
+    # Obtener mapeo de nodos para identificar capas
+    node_mapping = get_node_mapping(dim)
+    layer_colors = {
+        "input": "#2ecc71",  # Verde
+        "snn1": "#3498db",   # Azul
+        "snn2": "#9b59b6",   # Púrpura
+        "output": "#e74c3c"  # Rojo
+    }
 
     # Matriz expandida para intercalar enlaces entre los routers
     grid_size = dim * 2 - 1
@@ -98,59 +107,80 @@ def save_heatmap(network, dim, current_time, frames_dir, net_buffer_size):
         for x in range(dim):
             r_id = y * dim + x
             router = network.getRouter(r_id)
-            # Actividad: 0=LOCAL, 1=NORTH, 2=SOUTH, 3=EAST, 4=WEST
             activity = router.getLinkActivity()
 
-            # 1. Posición del Router (Gris oscuro, sin datos térmicos)
+            # 1. Posición del Router
             grid[y*2, x*2] = np.nan
             labels[y*2, x*2] = f"R{r_id}"
 
-            # 2. Enlace HORIZONTAL (Entre R(x,y) y R(x+1,y))
+            # 2. Enlace HORIZONTAL
             if x < dim - 1:
                 r_east = network.getRouter(y * dim + x + 1)
-                # Tráfico al ESTE (sale por EAST del actual)
                 east_bound = activity[3]
-                # Tráfico al OESTE (sale por WEST del vecino derecho)
                 west_bound = r_east.getLinkActivity()[4]
                 link_load = east_bound + west_bound
-
                 grid[y*2, x*2 + 1] = link_load
-                labels[y*2, x*2 + 1] = str(link_load) if link_load > 0 else "0"
+                labels[y*2, x*2 + 1] = str(link_load) if link_load > 0 else ""
 
-            # 3. Enlace VERTICAL (Entre R(x,y) y R(x,y+1))
+            # 3. Enlace VERTICAL
             if y < dim - 1:
                 r_south = network.getRouter((y + 1) * dim + x)
-                # Tráfico al SUR (sale por SOUTH del actual)
                 south_bound = activity[2]
-                # Tráfico al NORTE (sale por NORTH del vecino inferior)
                 north_bound = r_south.getLinkActivity()[1]
                 link_load = south_bound + north_bound
-
                 grid[y*2 + 1, x*2] = link_load
-                labels[y*2 + 1, x*2] = str(link_load) if link_load > 0 else "0"
+                labels[y*2 + 1, x*2] = str(link_load) if link_load > 0 else ""
 
-    # Resetear contadores de actividad después de capturar el frame
+    # Resetear contadores de actividad
     for r in range(dim * dim):
         network.getRouter(r).resetLinkActivity()
 
-    fig, ax = plt.subplots(figsize=(10, 10))
-
-    # Configuración de colores
+    fig, ax = plt.subplots(figsize=(12, 10))
     cmap = plt.cm.magma.copy()
-    cmap.set_bad(color='#151515') # Los routers y huecos diagonales se verán de este color
-
-    # Límite térmico: Basado en actividad acumulada (ajustar según frecuencia de muestreo)
-    # Para visualización dinámica en cada paso SNN, un valor menor es mejor
+    cmap.set_bad(color='#1a1a1a')
+    
     vmax_limit = max(10, np.nanmax(grid) if np.any(~np.isnan(grid)) else 10)
 
+    # Dibujar el heatmap de enlaces
     sns.heatmap(grid, cmap=cmap, annot=labels, fmt="",
-                linewidths=2, linecolor='#000000',
+                linewidths=1, linecolor='#333333',
                 vmin=0, vmax=vmax_limit,
-                cbar_kws={'label': 'Actividad de Enlaces (Flits en ventana)', 'shrink': 0.8}, ax=ax)
+                cbar_kws={'label': 'Flits en tránsito', 'shrink': 0.8}, ax=ax)
 
-    ax.set_title(f"Actividad de Enlaces NoC - Ciclo {current_time:,}", pad=20, fontsize=16, fontweight='bold')
+    # Superponer los Routers con colores de capa
+    for y in range(dim):
+        for x in range(dim):
+            r_id = y * dim + x
+            # Determinar a qué capa pertenece el router
+            layer_name = "unknown"
+            for name, ids in node_mapping.items():
+                if r_id in ids:
+                    layer_name = name
+                    break
+            
+            color = layer_colors.get(layer_name, "#555555")
+            # Dibujar un rectángulo sobre la celda del router
+            rect = plt.Rectangle((x*2, y*2), 1, 1, fill=True, color=color, alpha=0.8, transform=ax.transData)
+            ax.add_patch(rect)
+            # Añadir el texto del router
+            ax.text(x*2 + 0.5, y*2 + 0.5, f"R{r_id}\n({layer_name.upper()})", 
+                    color='white', ha='center', va='center', fontweight='bold', fontsize=8)
+
+    # Añadir etiquetas de capa en los laterales
+    for i, (layer_name, color) in enumerate(layer_colors.items()):
+        plt.text(grid_size + 0.5, i * (grid_size/4) + 1, f"■ {layer_name.upper()}", 
+                 color=color, fontweight='bold', fontsize=12)
+
+    ax.set_title(f"Visualización Arquitectónica NoC-AER\nCiclo: {current_time:,} | Tráfico de Impulsos SNN", 
+                 pad=30, fontsize=18, fontweight='bold', color='white')
     ax.set_xticks([])
     ax.set_yticks([])
+    
+    # Añadir un marco elegante
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_color('#444444')
+        spine.set_linewidth(2)
 
     plt.tight_layout()
     filename = os.path.join(frames_dir, f"frame_{current_time:015d}.png")
