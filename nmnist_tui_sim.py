@@ -86,27 +86,72 @@ def generate_simulation_video(frames_dir, output_name="noc_heatmap.mp4"):
     video.release()
     print(f"\n✅ Video de tráfico generado: {output_name}")
 
-def save_heatmap(network, dim, current_time, frames_dir):
-    grid = np.zeros((dim, dim))
+def save_heatmap(network, dim, current_time, frames_dir, net_buffer_size):
+    plt.style.use('dark_background')
+
+    # Matriz expandida para intercalar enlaces entre los routers
+    grid_size = dim * 2 - 1
+    grid = np.full((grid_size, grid_size), np.nan)
+    labels = np.full((grid_size, grid_size), "", dtype=object)
+
     for y in range(dim):
         for x in range(dim):
             r_id = y * dim + x
-            # Obtenemos la ocupación total de los buffers en este router
-            # Esto representa directamente la congestión temporal en ese nodo/enlace
-            grid[y, x] = network.getRouter(r_id).getBufferOccupancy()
+            router = network.getRouter(r_id)
+            # Índices: 0=LOCAL, 1=NORTH, 2=SOUTH, 3=EAST, 4=WEST
+            occ = router.getDetailedOccupancy()
 
-    plt.figure(figsize=(6, 5))
-    # Usamos coolwarm o YlOrRd para mostrar zonas calientes de congestión
-    sns.heatmap(grid, cmap="YlOrRd", annot=True, fmt=".0f", cbar_kws={'label': 'Ocupación de Buffers (Flits)'})
-    plt.title(f"Estado de la NoC - Ciclo {current_time:,}")
-    plt.xlabel("X (Columnas)")
-    plt.ylabel("Y (Filas)")
+            # 1. Posición del Router (Gris oscuro, sin datos térmicos)
+            grid[y*2, x*2] = np.nan
+            labels[y*2, x*2] = f"R{r_id}"
+
+            # 2. Enlace HORIZONTAL (Entre R(x,y) y R(x+1,y))
+            if x < dim - 1:
+                r_east = network.getRouter(y * dim + x + 1)
+                # Tráfico al ESTE (espera en el buffer WEST del vecino derecho)
+                east_bound = r_east.getDetailedOccupancy()[4]
+                # Tráfico al OESTE (espera en el buffer EAST del nodo actual)
+                west_bound = occ[3]
+                link_load = east_bound + west_bound
+
+                grid[y*2, x*2 + 1] = link_load
+                labels[y*2, x*2 + 1] = str(link_load) if link_load > 0 else "0"
+
+            # 3. Enlace VERTICAL (Entre R(x,y) y R(x,y+1))
+            if y < dim - 1:
+                r_south = network.getRouter((y + 1) * dim + x)
+                # Tráfico al SUR (espera en el buffer NORTH del vecino inferior)
+                south_bound = r_south.getDetailedOccupancy()[1]
+                # Tráfico al NORTE (espera en el buffer SOUTH del nodo actual)
+                north_bound = occ[2]
+                link_load = south_bound + north_bound
+
+                grid[y*2 + 1, x*2] = link_load
+                labels[y*2 + 1, x*2] = str(link_load) if link_load > 0 else "0"
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+
+    # Configuración de colores
+    cmap = plt.cm.magma.copy()
+    cmap.set_bad(color='#151515') # Los routers y huecos diagonales se verán de este color
+
+    # Límite térmico: 20% de la capacidad combinada de un enlace bidireccional
+    vmax_limit = max(2, int(net_buffer_size * 2 * 0.2))
+
+    sns.heatmap(grid, cmap=cmap, annot=labels, fmt="",
+                linewidths=2, linecolor='#000000',
+                vmin=0, vmax=vmax_limit,
+                cbar_kws={'label': 'Ocupación de Enlaces (N+S o E+W)', 'shrink': 0.8}, ax=ax)
+
+    ax.set_title(f"Estado de los Enlaces NoC - Ciclo {current_time:,}", pad=20, fontsize=16, fontweight='bold')
+    ax.set_xticks([])
+    ax.set_yticks([])
+
     plt.tight_layout()
-
-    # Formateamos el nombre para que se ordenen alfabéticamente en el vídeo
     filename = os.path.join(frames_dir, f"frame_{current_time:015d}.png")
-    plt.savefig(filename)
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
     plt.close()
+    plt.style.use('default')
 
 # --- Configuración inicial (fuera del main o al principio de main_compat) ---
 def setup_topology(dim):
@@ -447,12 +492,12 @@ def main_compat():
     # --- NUEVO: Setup para Heatmaps ---
     frames_dir = "heatmap_frames"
     os.makedirs(frames_dir, exist_ok=True)
-    # Limpiar frames de ejecuciones anteriores
     for f in glob.glob(f"{frames_dir}/*.png"):
         os.remove(f)
 
-    # Queremos el primer frame en el ciclo 1,000,000
     next_heatmap_time = 1000000
+    # Guardamos el estado histórico de los flits reenviados por cada router
+    prev_forwarded = {r: 0 for r in range(args.dim * args.dim)}
     # ----------------------------------
 
     with torch.no_grad():
@@ -497,11 +542,11 @@ def main_compat():
                 while not event_queue.isEmpty() and event_queue.getCurrentTime() < tiempo_limite:
                     current_time = event_queue.getCurrentTime()
 
-                    # --- NUEVO: Generar heatmap cada 1,000,000 ciclos ---
+                    # --- NUEVO: Generar mapa de estado de enlaces cada 1,000,000 ciclos ---
                     if current_time >= next_heatmap_time:
-                        save_heatmap(network, args.dim, current_time, frames_dir)
+                        save_heatmap(network, args.dim, current_time, frames_dir, args.net_buffer)
                         next_heatmap_time += 1000000
-                    # ----------------------------------------------------
+                    # ----------------------------------------------------------------------
 
                     # Solo evaluamos si el reloj físico ha avanzado
                     if current_time > last_eval_time:
