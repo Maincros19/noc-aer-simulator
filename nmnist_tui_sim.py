@@ -140,7 +140,8 @@ def save_heatmap(network, dim, current_time, frames_dir, net_buffer_size):
     cmap.set_bad(color='#151515') # Los routers y huecos diagonales se verán de este color
 
     # Límite térmico: Basado en actividad acumulada (ajustar según frecuencia de muestreo)
-    vmax_limit = 5000 
+    # Para visualización dinámica en cada paso SNN, un valor menor es mejor
+    vmax_limit = max(10, np.nanmax(grid) if np.any(~np.isnan(grid)) else 10)
 
     sns.heatmap(grid, cmap=cmap, annot=labels, fmt="",
                 linewidths=2, linecolor='#000000',
@@ -499,7 +500,7 @@ def main_compat():
     for f in glob.glob(f"{frames_dir}/*.png"):
         os.remove(f)
 
-    next_heatmap_time = 1000000
+    next_heatmap_time = CYCLES_PER_SNN_STEP
     # Guardamos el estado histórico de los flits reenviados por cada router
     prev_forwarded = {r: 0 for r in range(args.dim * args.dim)}
     # ----------------------------------
@@ -546,10 +547,10 @@ def main_compat():
                 while not event_queue.isEmpty() and event_queue.getCurrentTime() < tiempo_limite:
                     current_time = event_queue.getCurrentTime()
 
-                    # --- NUEVO: Generar mapa de estado de enlaces cada 1,000,000 ciclos ---
+                    # --- NUEVO: Generar mapa de estado de enlaces en cada paso SNN ---
                     if current_time >= next_heatmap_time:
                         save_heatmap(network, args.dim, current_time, frames_dir, args.net_buffer)
-                        next_heatmap_time += 1000000
+                        next_heatmap_time += CYCLES_PER_SNN_STEP
                     # ----------------------------------------------------------------------
 
                     # Solo evaluamos si el reloj físico ha avanzado
