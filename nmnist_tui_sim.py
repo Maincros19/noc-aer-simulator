@@ -86,7 +86,27 @@ def generate_simulation_video(frames_dir, output_name="noc_heatmap.mp4"):
     video.release()
     print(f"\n✅ Video de tráfico generado: {output_name}")
 
+def save_heatmap(network, dim, current_time, frames_dir):
+    grid = np.zeros((dim, dim))
+    for y in range(dim):
+        for x in range(dim):
+            r_id = y * dim + x
+            # Obtenemos la ocupación total de los buffers en este router
+            # Esto representa directamente la congestión temporal en ese nodo/enlace
+            grid[y, x] = network.getRouter(r_id).getBufferOccupancy()
 
+    plt.figure(figsize=(6, 5))
+    # Usamos coolwarm o YlOrRd para mostrar zonas calientes de congestión
+    sns.heatmap(grid, cmap="YlOrRd", annot=True, fmt=".0f", cbar_kws={'label': 'Ocupación de Buffers (Flits)'})
+    plt.title(f"Estado de la NoC - Ciclo {current_time:,}")
+    plt.xlabel("X (Columnas)")
+    plt.ylabel("Y (Filas)")
+    plt.tight_layout()
+
+    # Formateamos el nombre para que se ordenen alfabéticamente en el vídeo
+    filename = os.path.join(frames_dir, f"frame_{current_time:015d}.png")
+    plt.savefig(filename)
+    plt.close()
 
 # --- Configuración inicial (fuera del main o al principio de main_compat) ---
 def setup_topology(dim):
@@ -424,6 +444,17 @@ def main_compat():
     ciclos_por_inferencia = []
     tiempo_acumulado_anterior = 0
 
+    # --- NUEVO: Setup para Heatmaps ---
+    frames_dir = "heatmap_frames"
+    os.makedirs(frames_dir, exist_ok=True)
+    # Limpiar frames de ejecuciones anteriores
+    for f in glob.glob(f"{frames_dir}/*.png"):
+        os.remove(f)
+
+    # Queremos el primer frame en el ciclo 1,000,000
+    next_heatmap_time = 1000000
+    # ----------------------------------
+
     with torch.no_grad():
         w_conv1_flat = net.conv1.weight.detach().cpu().numpy().flatten()
         for i in range(args.samples):
@@ -465,6 +496,12 @@ def main_compat():
                 # Bucle de ciclo de reloj
                 while not event_queue.isEmpty() and event_queue.getCurrentTime() < tiempo_limite:
                     current_time = event_queue.getCurrentTime()
+
+                    # --- NUEVO: Generar heatmap cada 1,000,000 ciclos ---
+                    if current_time >= next_heatmap_time:
+                        save_heatmap(network, args.dim, current_time, frames_dir)
+                        next_heatmap_time += 1000000
+                    # ----------------------------------------------------
 
                     # Solo evaluamos si el reloj físico ha avanzado
                     if current_time > last_eval_time:
@@ -552,6 +589,10 @@ def main_compat():
         "ciclos_medios": ciclos_medios,
         "ciclos_simulacion": sim_t,
     }
+
+    # Ensamblar los frames generados en un video
+    generate_simulation_video(frames_dir, output_name=args.video_name + ".mp4")
+
 
     draw_dashboard_compat("Simulación Completada ✅", 1.0, args, metrics=metrics)
 
