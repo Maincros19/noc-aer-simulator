@@ -5,8 +5,10 @@
 Router::Router(int id, int x, int y, int dim_x, int dim_y, EventQueue& eq)
     : id(id), x_coord(x), y_coord(y), dim_x(dim_x), dim_y(dim_y), event_queue(eq),
       max_injection_buffer_size(1024), max_network_buffer_size(32), last_arbitrated_port(WEST), is_processing_scheduled(false),
-      flits_dropped(0), flits_received(0), flits_injected(0), flits_forwarded(0),
-      total_latency(0), total_latency_sq(0), total_injection_latency(0), total_network_latency(0),
+      flits_dropped(0), flits_received(0),     flits_injected(0),
+    flits_forwarded(0),
+    link_activity(NUM_PORTS, 0),
+    total_latency(0), total_latency_sq(0), total_injection_latency(0), total_network_latency(0),
       total_ram_latency(0), total_buffer_latency(0) {
     for (int i = 0; i < NUM_PORTS; ++i) {
         input_buffers[static_cast<Port>(i)] = std::queue<Flit>();
@@ -132,6 +134,7 @@ void Router::processFlit(uint64_t current_time) {
     }
 
     flits_forwarded++;
+    link_activity[out_port]++;
 
     // GENERAR CRÉDITO para el router que nos envió este flit
     if (in_port != LOCAL) {

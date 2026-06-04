@@ -98,8 +98,8 @@ def save_heatmap(network, dim, current_time, frames_dir, net_buffer_size):
         for x in range(dim):
             r_id = y * dim + x
             router = network.getRouter(r_id)
-            # Índices: 0=LOCAL, 1=NORTH, 2=SOUTH, 3=EAST, 4=WEST
-            occ = router.getDetailedOccupancy()
+            # Actividad: 0=LOCAL, 1=NORTH, 2=SOUTH, 3=EAST, 4=WEST
+            activity = router.getLinkActivity()
 
             # 1. Posición del Router (Gris oscuro, sin datos térmicos)
             grid[y*2, x*2] = np.nan
@@ -108,10 +108,10 @@ def save_heatmap(network, dim, current_time, frames_dir, net_buffer_size):
             # 2. Enlace HORIZONTAL (Entre R(x,y) y R(x+1,y))
             if x < dim - 1:
                 r_east = network.getRouter(y * dim + x + 1)
-                # Tráfico al ESTE (espera en el buffer WEST del vecino derecho)
-                east_bound = r_east.getDetailedOccupancy()[4]
-                # Tráfico al OESTE (espera en el buffer EAST del nodo actual)
-                west_bound = occ[3]
+                # Tráfico al ESTE (sale por EAST del actual)
+                east_bound = activity[3]
+                # Tráfico al OESTE (sale por WEST del vecino derecho)
+                west_bound = r_east.getLinkActivity()[4]
                 link_load = east_bound + west_bound
 
                 grid[y*2, x*2 + 1] = link_load
@@ -120,14 +120,18 @@ def save_heatmap(network, dim, current_time, frames_dir, net_buffer_size):
             # 3. Enlace VERTICAL (Entre R(x,y) y R(x,y+1))
             if y < dim - 1:
                 r_south = network.getRouter((y + 1) * dim + x)
-                # Tráfico al SUR (espera en el buffer NORTH del vecino inferior)
-                south_bound = r_south.getDetailedOccupancy()[1]
-                # Tráfico al NORTE (espera en el buffer SOUTH del nodo actual)
-                north_bound = occ[2]
+                # Tráfico al SUR (sale por SOUTH del actual)
+                south_bound = activity[2]
+                # Tráfico al NORTE (sale por NORTH del vecino inferior)
+                north_bound = r_south.getLinkActivity()[1]
                 link_load = south_bound + north_bound
 
                 grid[y*2 + 1, x*2] = link_load
                 labels[y*2 + 1, x*2] = str(link_load) if link_load > 0 else "0"
+
+    # Resetear contadores de actividad después de capturar el frame
+    for r in range(dim * dim):
+        network.getRouter(r).resetLinkActivity()
 
     fig, ax = plt.subplots(figsize=(10, 10))
 
@@ -135,15 +139,15 @@ def save_heatmap(network, dim, current_time, frames_dir, net_buffer_size):
     cmap = plt.cm.magma.copy()
     cmap.set_bad(color='#151515') # Los routers y huecos diagonales se verán de este color
 
-    # Límite térmico: 20% de la capacidad combinada de un enlace bidireccional
-    vmax_limit = max(2, int(net_buffer_size * 2 * 0.2))
+    # Límite térmico: Basado en actividad acumulada (ajustar según frecuencia de muestreo)
+    vmax_limit = 5000 
 
     sns.heatmap(grid, cmap=cmap, annot=labels, fmt="",
                 linewidths=2, linecolor='#000000',
                 vmin=0, vmax=vmax_limit,
-                cbar_kws={'label': 'Ocupación de Enlaces (N+S o E+W)', 'shrink': 0.8}, ax=ax)
+                cbar_kws={'label': 'Actividad de Enlaces (Flits en ventana)', 'shrink': 0.8}, ax=ax)
 
-    ax.set_title(f"Estado de los Enlaces NoC - Ciclo {current_time:,}", pad=20, fontsize=16, fontweight='bold')
+    ax.set_title(f"Actividad de Enlaces NoC - Ciclo {current_time:,}", pad=20, fontsize=16, fontweight='bold')
     ax.set_xticks([])
     ax.set_yticks([])
 

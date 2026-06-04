@@ -93,6 +93,8 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getNetworkBufferSize", &Router::getNetworkBufferSize)
         .def("getBufferOccupancy", &Router::getBufferOccupancy)
         .def("getDetailedOccupancy", &Router::getDetailedOccupancy)
+        .def("getLinkActivity", &Router::getLinkActivity)
+        .def("resetLinkActivity", &Router::resetLinkActivity)
         .def("getLinkStallStatus", &Router::getLinkStallStatus)
         .def("mapNeuron", &Router::mapNeuron, py::arg("neuron_id"), py::arg("v_th"), py::arg("leak"), py::arg("synapses"))
         .def("getNeuronSpikeCount", &Router::getNeuronSpikeCount, py::arg("neuron_id"))

@@ -65,6 +65,8 @@ public:
     double getAvgRamLatency() const { return flits_received > 0 ? (double)total_ram_latency / flits_received : 0; }
     double getAvgBufferLatency() const { return flits_received > 0 ? (double)total_buffer_latency / flits_received : 0; }
     uint64_t getLateFlits() const;
+    std::vector<uint64_t> getLinkActivity() const { return link_activity; }
+    void resetLinkActivity() { std::fill(link_activity.begin(), link_activity.end(), 0); }
 
     double getAvgLatency() const { return flits_received > 0 ? (double)total_latency / flits_received : 0; }
     double getLatencyJitter() const { 
@@ -134,6 +136,7 @@ private:
     uint64_t flits_received;  // Contador de flits que llegaron a su destino (LOCAL)
     uint64_t flits_injected;  // Contador de flits inyectados localmente
     uint64_t flits_forwarded; // Contador de flits procesados (para energía dinámica)
+    std::vector<uint64_t> link_activity; // Contador de flits enviados por cada puerto
     double total_latency;   // Suma de latencias (E2E)
     double total_latency_sq; // Suma de latencias al cuadrado (para jitter)
     double total_injection_latency; // NUEVO
