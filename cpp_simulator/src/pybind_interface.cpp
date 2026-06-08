@@ -55,7 +55,14 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def_readwrite("dma_entry_time", &Flit::dma_entry_time)
         .def_readwrite("network_entry_time", &Flit::network_entry_time)
         .def_readwrite("payload_weight", &Flit::payload_weight)
-        .def_readwrite("dest_neuron_id", &Flit::dest_neuron_id);
+        .def_readwrite("dest_neuron_id", &Flit::dest_neuron_id)
+        .def_readwrite("is_multicast", &Flit::is_multicast)
+        .def("setMulticastTargets", [](Flit& f, std::vector<int> r, std::vector<int> n, std::vector<double> w) {
+            f.is_multicast = true;
+            f.dest_routers = r;
+            f.dest_neurons = n;
+            f.payload_weights = w;
+        });
 
 
     py::class_<Event>(m, "Event")
@@ -121,7 +128,8 @@ PYBIND11_MODULE(noc_simulator_pybind, m) {
         .def("getAvgRamLatency", &Network::getAvgRamLatency)
         .def("getAvgBufferLatency", &Network::getAvgBufferLatency)
         .def("resetNeuronsState", &Network::resetNeuronsState)
-        .def("stepSimulation", &Network::stepSimulation);
+        .def("stepSimulation", &Network::stepSimulation)
+        .def("setMulticastMode", &Network::setMulticastMode);
 
 
 

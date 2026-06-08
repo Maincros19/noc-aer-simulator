@@ -40,6 +40,7 @@ public:
     void receiveCredit(Port out_port);
     bool isProcessingScheduled() const { return is_processing_scheduled; }
     void setProcessingScheduled(bool scheduled) { is_processing_scheduled = scheduled; }
+    void setMulticastMode(bool enabled) { multicast_enabled = enabled; }
 
     // --- NUEVO: Métodos públicos para mapear y evaluar neuronas de silicio ---
     void mapNeuron(int neuron_id, double v_th, double leak, const std::vector<Synapse>& synapses);
@@ -121,6 +122,7 @@ private:
     int max_injection_buffer_size;
     int max_network_buffer_size;
 
+
     // --- NUEVO: Memoria SRAM estática de las neuronas y contador local ---
     std::vector<LogicalNeuron> local_neurons;
     uint64_t flit_id_counter = 0;
@@ -150,6 +152,7 @@ private:
     void switchFlit(Flit flit, Port out_port, uint64_t current_time);
 
     //std::queue<Flit> pending_injections;
+    bool multicast_enabled = false;
 };
 
 #endif

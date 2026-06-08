@@ -180,3 +180,10 @@ void Network::resetNeuronsState() {
         router->resetNeuronsState();
     }
 }
+
+void Network::setMulticastMode(bool enabled) {
+    multicast_enabled = enabled;
+    for (auto const& [id, router] : routers) {
+        router->setMulticastMode(enabled);
+    }
+}

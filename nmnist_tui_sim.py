@@ -42,6 +42,7 @@ TECH = {
 }
 def parse_args():
     parser = argparse.ArgumentParser(description="NoC-AER Simulator")
+    parser.add_argument("--routing", type=str, choices=['unicast', 'multicast'], default='unicast', help="Modo de ruteo NoC")
     parser.add_argument("--dim", type=int, default=4, help="Dimensión de la malla NoC (ej. 4 para 4x4)")
     parser.add_argument("--inj_buffer", type=int, default=1024, help="Tamaño del buffer de inyección (LOCAL)")
     parser.add_argument("--net_buffer", type=int, default=32, help="Tamaño del buffer de red (N, S, E, W)")
@@ -404,6 +405,7 @@ def main_compat():
     # --- 1. INICIALIZACIÓN DE LA RED ---
     event_queue = ncs.EventQueue()
     network = ncs.Network(args.dim, args.dim, event_queue)
+    network.setMulticastMode(args.routing == 'multicast')
     for r in range(args.dim * args.dim):
         network.getRouter(r).setBufferSizes(args.inj_buffer, args.net_buffer)
 
@@ -556,14 +558,22 @@ def main_compat():
                     idx_original = idx_tensor.item()
                     weight_real = float(w_conv1_flat[idx_original % len(w_conv1_flat)])
                     src = nodes['input'][idx_num % len(nodes['input'])]
-
-                    destinos = synapse_map.get(idx_original, []) # synapse_map debería ser el dict que guardaste al mapear
+                    destinos = synapse_map.get(idx_original, [])
 
                     if destinos:
-                        for dst in destinos:
-                            flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, dst, src, int(t_base), weight_real, idx_original)
+                        if args.routing == 'multicast':
+                            # Inyectar UN solo paquete que se replicará en la malla
+                            flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, -1, src, int(t_base), 0.0, -1)
+                            # Duplicamos la información para cada destino esperado
+                            flit.setMulticastTargets(destinos, [idx_original]*len(destinos), [weight_real]*len(destinos))
                             network.getRouter(src).injectFlit(flit, int(t_base))
-                            flit_id += 1 # Es importante incrementar el ID del flit para evitar colisiones
+                            flit_id += 1
+                        else:
+                            # Inyección Unicast tradicional
+                            for dst in destinos:
+                                flit = ncs.Flit(flit_id, 0, ncs.FlitType.BODY, src, dst, src, int(t_base), weight_real, idx_original)
+                                network.getRouter(src).injectFlit(flit, int(t_base))
+                                flit_id += 1
 
                 # --- B. SIMULACIÓN FÍSICA IN-MEMORY ---
                 tiempo_limite = t_base + CYCLES_PER_SNN_STEP

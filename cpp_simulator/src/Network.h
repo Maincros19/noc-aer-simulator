@@ -17,6 +17,7 @@ public:
     void stepSimulation(int num_events);
     void handleEvent(const Event& event);
     void resetNeuronsState();
+    void setMulticastMode(bool enabled);
 
     // Aggregate Metrics
     uint64_t getTotalFlitsInjected() const;
@@ -38,7 +39,9 @@ private:
     std::map<int, Router*> routers;
     uint64_t current_sim_time;
 
+
     int getRouterId(int x, int y) const { return y * dim_x + x; }
+    bool multicast_enabled = false;
 };
 
 #endif // NETWORK_H
